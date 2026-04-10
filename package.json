@@ -1,0 +1,15 @@
+{
+  "name": "kstream-scraper",
+  "version": "1.0.0",
+  "description": "Standalone Node.js scraper for KStream",
+  "main": "index-crawler.js",
+  "type": "module",
+  "scripts": {
+    "crawl": "node index-crawler.js",
+    "scrape": "node detail-scraper.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "cheerio": "^1.0.0"
+  }
+}
