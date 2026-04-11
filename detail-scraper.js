@@ -87,7 +87,7 @@ function extractMovieDetails(html, url) {
         cast_members: cast.length > 0 ? cast : null,
         genres: genres.length > 0 ? genres : null,
         type: typeText || null,
-        language: languageText || 'Tamil',
+        language: languageText || null,
         rating: rating || null,
         poster_url: poster
     };
