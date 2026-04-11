@@ -118,7 +118,7 @@ async function findQualityLinks(html, baseUrl) {
     });
 
     // If no quality links on movie page, need to go to Original page first
-    if (qualityLinks.length === 0) {
+    if (qualityLinksOnPage.length === 0) {
         let originalUrl = '';
         $('a').each((i, el) => {
             const href = $(el).attr('href');
