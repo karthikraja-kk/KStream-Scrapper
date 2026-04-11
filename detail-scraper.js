@@ -97,25 +97,61 @@ async function findQualityLinks(html, baseUrl) {
     const $ = cheerio.load(html);
     const qualities = [];
 
+    // First check for quality links directly on movie page
+    let qualityLinksOnPage = [];
     $('a[href*="-movie/"]').each((i, el) => {
         const href = $(el).attr('href');
         const text = $(el).text().trim().toLowerCase();
-
         if (href && !href.includes('../') && href.endsWith('/') && !text.includes('(original)')) {
             let quality = 'Unknown';
-
             if (text.includes('1080p')) quality = '1080p';
             else if (text.includes('720p')) quality = '720p';
             else if (text.includes('360p')) quality = '360p';
-
             if (quality !== 'Unknown') {
-                qualities.push({
-                    quality,
-                    url: new URL(href, baseUrl).toString()
-                });
+                qualityLinksOnPage.push({ quality, url: new URL(href, baseUrl).toString() });
             }
         }
     });
+
+    // If no quality links on movie page directly, need to go to Original page first
+    if (qualityLinksOnPage.length === 0) {
+        let originalUrl = '';
+        $('a').each((i, el) => {
+            const href = $(el).attr('href');
+            const text = $(el).text().toLowerCase();
+            if (href && text.includes('(original)')) {
+                originalUrl = new URL(href, baseUrl).toString();
+            }
+        });
+
+        if (originalUrl) {
+            try {
+                const origHtml = await fetchHtml(originalUrl);
+                const $orig = cheerio.load(origHtml);
+
+                $orig('a[href*="-movie/"]').each((i, el) => {
+                    const href = $(el).attr('href');
+                    const text = $(el).text().trim().toLowerCase();
+                    if (href && !href.includes('../') && href.endsWith('/') && !text.includes('(original)')) {
+                        let quality = 'Unknown';
+                        if (text.includes('1080p')) quality = '1080p';
+                        else if (text.includes('720p')) quality = '720p';
+                        else if (text.includes('360p')) quality = '360p';
+                        if (quality !== 'Unknown') {
+                            qualities.push({
+                                quality,
+                                url: new URL(href, originalUrl).toString()
+                            });
+                        }
+                    }
+                });
+            } catch (e) {
+                console.log('Error fetching Original page:', e.message);
+            }
+        }
+    } else {
+        qualities.push(...qualityLinksOnPage);
+    }
 
     return qualities;
 }
