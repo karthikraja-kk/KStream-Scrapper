@@ -272,6 +272,14 @@ async function getDownloadLinks(qualityPageUrl) {
                 // Follow both Server 1 and Server 2 chains to get final URLs
                 if (movieServer1 || movieServer2) {
                     try {
+                        console.log('DEBUG: Following server chains, server1:', !!movieServer1, 'server2:', !!movieServer2);
+                        
+                        // Get Server 1 chain (for download_url_1 and watch_url_1)
+                        if (movieServer1) {
+
+                // Follow both Server 1 and Server 2 chains to get final URLs
+                if (movieServer1 || movieServer2) {
+                    try {
                         // Get Server 1 chain (for download_url_1 and watch_url_1)
                         if (movieServer1) {
                             const server1Html = await fetchHtml(movieServer1);
@@ -419,6 +427,7 @@ async function scrapeMovieDetails(item) {
     } else {
         for (const q of qualityLinks) {
             const downloadLinks = await getDownloadLinks(q.url);
+            console.log('DEBUG getDownloadLinks result:', JSON.stringify(downloadLinks));
             const mediaDuration = downloadLinks.duration || movieDetails.duration || null;
             await supabase.from('media').insert({
                 movie_id: movieId,
