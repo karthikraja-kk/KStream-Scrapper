@@ -1,170 +1,205 @@
-import { createClient } from '@supabase/supabase-js';
 import * as cheerio from 'cheerio';
-import fetch from 'node-fetch';
+import { fetchHtml, delay } from './lib/fetch.js';
+import { supabase } from './lib/supabase.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+const BATCH_SIZE = 50;
+const BATCH_DELAY_MS = 15000;
+const MOVIE_DELAY_MS = 1500;
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-    console.error('Missing environment variables: SUPABASE_URL, SUPABASE_SERVICE_KEY');
-    process.exit(1);
+async function getQueueItems(limit = 15) {
+    const { data, error } = await supabase
+        .from('scrape_queue')
+        .select('*')
+        .eq('status', 'pending')
+        .order('priority', { ascending: true })
+        .order('queued_at', { ascending: true })
+        .limit(limit);
+
+    if (error) throw error;
+    return data || [];
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+async function updateQueueStatus(id, status, errorMsg = null) {
+    await supabase
+        .from('scrape_queue')
+        .update({
+            status,
+            error_msg: errorMsg,
+            processed_at: new Date().toISOString()
+        })
+        .eq('id', id);
+}
 
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+function extractMovieDetails(html, url) {
+    const $ = cheerio.load(html);
 
-async function fetchHtml(url, referer = null) {
-    const headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36',
+    const title = $('title').text().trim() || '';
+    const yearMatch = title.match(/\((\d{4})\)/);
+    const year = yearMatch ? parseInt(yearMatch[1]) : null;
+
+    const posterUrl = $('img').first().attr('src') || '';
+
+    const synopsis = $('meta[name="description"]').attr('content') || '';
+
+    const durationMatch = html.match(/(\d{2}:\d{2}:\d{2})/);
+    const duration = durationMatch ? durationMatch[1] : '';
+
+    const genre = [];
+    $('.genre a, .genres a').each((i, el) => {
+        const text = $(el).text().trim();
+        if (text) genre.push(text);
+    });
+
+    const director = [];
+    $('a[href*="director"], .director a').each((i, el) => {
+        const text = $(el).text().trim();
+        if (text) director.push(text);
+    });
+
+    const cast = [];
+    $('a[href*="cast"], .cast a').each((i, el) => {
+        const text = $(el).text().trim();
+        if (text) cast.push(text);
+    });
+
+    const rating = $('[itemprop="ratingValue"], .rating').text().trim() || '';
+
+    const type = '';
+
+    const language = '';
+
+    return {
+        movie_url: url,
+        movie_name: title.replace(/\s*\(\d{4}\)/, '').trim(),
+        year,
+        duration,
+        synopsis,
+        director: director.length > 0 ? director : null,
+        cast_members: cast.length > 0 ? cast : null,
+        genres: genre.length > 0 ? genre : null,
+        type,
+        language,
+        rating,
+        poster_url: posterUrl
     };
-    if (referer) headers['Referer'] = referer;
+}
 
-    const response = await fetch(url, { headers });
-    if (!response.ok) throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
-    return response.text();
+function extractMediaDetails(html, movieId) {
+    const $ = cheerio.load(html);
+    const media = [];
+
+    $('a[href*="1080p"], a[href*="720p"], a[href*="original"]').each((i, el) => {
+        const href = $(el).attr('href');
+        const text = $(el).text().trim().toLowerCase();
+
+        let quality = '1080p';
+        if (text.includes('720p')) quality = '720p';
+        else if (text.includes('original')) quality = 'Original';
+        else if (text.includes('480p')) quality = '480p';
+
+        if (href) {
+            media.push({
+                movie_id: movieId,
+                quality,
+                download_url_1: href
+            });
+        }
+    });
+
+    if (media.length === 0) {
+        media.push({
+            movie_id: movieId,
+            quality: 'Unknown',
+            download_url_1: ''
+        });
+    }
+
+    return media;
+}
+
+async function scrapeMovieDetails(item) {
+    const html = await fetchHtml(item.url);
+    const movieDetails = extractMovieDetails(html, item.url);
+
+    const { data: existingMovie } = await supabase
+        .from('movies')
+        .select('id')
+        .eq('movie_url', item.url)
+        .single();
+
+    let movieId;
+
+    if (existingMovie) {
+        await supabase
+            .from('movies')
+            .update(movieDetails)
+            .eq('id', existingMovie.id);
+        movieId = existingMovie.id;
+    } else {
+        const { data: newMovie, error } = await supabase
+            .from('movies')
+            .insert(movieDetails)
+            .select('id')
+            .single();
+
+        if (error) throw error;
+        movieId = newMovie.id;
+    }
+
+    await supabase
+        .from('media')
+        .delete()
+        .eq('movie_id', movieId);
+
+    const mediaDetails = extractMediaDetails(html, movieId);
+
+    if (mediaDetails.length > 0) {
+        await supabase
+            .from('media')
+            .insert(mediaDetails);
+    }
+
+    return movieDetails.movie_name;
 }
 
 async function scrapeDetails() {
     console.log('Starting Detail Scraper...');
-    try {
-        const { data: queueItems, error: queueError } = await supabase
-            .from('scrape_queue')
-            .select('*')
-            .eq('status', 'pending')
-            .order('priority', { ascending: true })
-            .order('queued_at', { ascending: true })
-            .limit(15);
 
-        if (queueError) throw queueError;
-        if (!queueItems || queueItems.length === 0) {
-            console.log('No pending items in queue.');
+    try {
+        const queueItems = await getQueueItems(BATCH_SIZE);
+        console.log(`Processing ${queueItems.length} items from queue...`);
+
+        if (queueItems.length === 0) {
+            console.log('No pending items.');
             return;
         }
 
-        console.log(`Processing ${queueItems.length} items from queue...`);
+        let processed = 0;
+
         for (const item of queueItems) {
-            console.log(`Scraping: ${item.url}...`);
-            await processMovie(item);
-            await delay(800);
+            try {
+                console.log(`Scraping: ${item.url}...`);
+                const title = await scrapeMovieDetails(item);
+                console.log(`Done: ${title}`);
+
+                await updateQueueStatus(item.id, 'done');
+                processed++;
+
+                if (processed % BATCH_SIZE === 0) {
+                    console.log(`Batch limit reached, pausing ${BATCH_DELAY_MS / 1000}s...`);
+                    await delay(BATCH_DELAY_MS);
+                } else {
+                    await delay(MOVIE_DELAY_MS);
+                }
+            } catch (err) {
+                console.error(`Error: ${item.url}: ${err.message}`);
+                await updateQueueStatus(item.id, 'error', err.message);
+            }
         }
+
+        console.log(`Detail Scraper finished. Processed ${processed} movies.`);
     } catch (err) {
         console.error('Scraper Error:', err.message);
-    }
-}
-
-async function resolveStreamUrl(initialUrl) {
-    let currentUrl = initialUrl;
-    let referer = null;
-    let resolvedUrl = null;
-
-    for (let i = 0; i < 3; i++) {
-        try {
-            const html = await fetchHtml(currentUrl, referer);
-            
-            // 1. Check for video source tag
-            const $ = cheerio.load(html);
-            // TODO: adjust selector to match source site HTML for video tags
-            const videoSrc = $('video source').attr('src') || $('video').attr('src');
-            if (videoSrc && (videoSrc.includes('.mp4') || videoSrc.includes('.m3u8'))) {
-                resolvedUrl = videoSrc;
-                break;
-            }
-
-            // 2. Check for JS patterns
-            const patterns = [
-                /(?:file|source|src|url)\s*[:=]\s*["'](https?:\/\/[^"'\s]+\.(?:mp4|m3u8)[^"']*)["']/i,
-                /atob\(['"]([^'"]+)['"]\)/i
-            ];
-            for (const pattern of patterns) {
-                const match = html.match(pattern);
-                if (match && match[1]) {
-                    if (pattern.source.includes('atob')) {
-                        try {
-                            const decoded = Buffer.from(match[1], 'base64').toString('utf-8');
-                            if (decoded.startsWith('http') && (decoded.includes('.mp4') || decoded.includes('.m3u8'))) {
-                                resolvedUrl = decoded;
-                                break;
-                            }
-                        } catch (e) {}
-                    } else {
-                        resolvedUrl = match[1];
-                        break;
-                    }
-                }
-            }
-            if (resolvedUrl) break;
-
-            // 3. Check for iframes
-            // TODO: adjust selector to match source site HTML for iframes
-            const iframeSrc = $('iframe').attr('src');
-            if (iframeSrc) {
-                referer = currentUrl;
-                currentUrl = new URL(iframeSrc, currentUrl).toString();
-            } else {
-                break;
-            }
-        } catch (e) {
-            break;
-        }
-    }
-    return resolvedUrl;
-}
-
-async function processMovie(item) {
-    try {
-        const html = await fetchHtml(item.url);
-        const $ = cheerio.load(html);
-
-        // TODO: adjust selector to match source site HTML for movie title
-        const title = $('title').text().trim();
-
-        // TODO: adjust selector to match source site HTML for year
-        const yearMatch = title.match(/\((\d{4})\)/);
-        const year = yearMatch ? parseInt(yearMatch[1]) : 0;
-
-        // TODO: adjust selector to match source site HTML for genre (array)
-        const genre = [];
-
-        // TODO: adjust selector to match source site HTML for poster URL
-        const poster_url = $('img').first().attr('src');
-
-        // TODO: adjust selector to match source site HTML for watch link page
-        const watchPageUrl = ''; 
-        let stream_url = null;
-        if (watchPageUrl) {
-            stream_url = await resolveStreamUrl(watchPageUrl);
-        }
-
-        const movieData = {
-            url: item.url,
-            title,
-            year,
-            genre,
-            poster_url,
-            stream_url,
-            folder: item.folder,
-            scraped_at: new Date().toISOString()
-        };
-
-        const { error: upsertError } = await supabase
-            .from('movies')
-            .upsert(movieData, { onConflict: 'url' });
-
-        if (upsertError) throw upsertError;
-
-        await supabase
-            .from('scrape_queue')
-            .update({ status: 'done', processed_at: new Date().toISOString() })
-            .eq('id', item.id);
-
-        console.log(`Done: ${title}`);
-    } catch (err) {
-        console.error(`Error scraping ${item.url}:`, err.message);
-        await supabase
-            .from('scrape_queue')
-            .update({ status: 'error', error_msg: err.message, processed_at: new Date().toISOString() })
-            .eq('id', item.id);
     }
 }
 

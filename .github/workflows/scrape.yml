@@ -1,0 +1,44 @@
+name: Scrape
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      trigger:
+        description: 'Trigger source'
+        required: true
+        default: 'user'
+        type: choice
+        options:
+          - user
+          - scheduler
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Crawl
+        run: node index-crawler.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          TRIGGER_BY: ${{ github.event.inputs.trigger || 'scheduler' }}
+
+      - name: Run Scrape
+        run: node detail-scraper.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          TRIGGER_BY: ${{ github.event.inputs.trigger || 'scheduler' }}

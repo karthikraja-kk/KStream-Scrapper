@@ -1,145 +1,131 @@
-import { createClient } from '@supabase/supabase-js';
 import * as cheerio from 'cheerio';
-import fetch from 'node-fetch'; // Standard fetch in Node 18+, but using node-fetch for compatibility if needed
+import { getSourceUrl, checkRateLimit, startRefresh, finishRefresh, getFolderState, updateFolderState } from './lib/supabase.js';
+import { fetchHtml, delay } from './lib/fetch.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const SOURCE_BASE_URL = process.env.SOURCE_BASE_URL;
+const BATCH_SIZE = 50;
+const BATCH_DELAY_MS = 15000;
+const FOLDER_DELAY_MS = 5000;
+const PAGE_DELAY_MS = 1500;
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY || !SOURCE_BASE_URL) {
-    console.error('Missing environment variables: SUPABASE_URL, SUPABASE_SERVICE_KEY, SOURCE_BASE_URL');
-    process.exit(1);
-}
+async function discoverFolders(baseUrl) {
+    const html = await fetchHtml(baseUrl);
+    const $ = cheerio.load(html);
+    const folders = [];
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function fetchHtml(url) {
-    const response = await fetch(url, {
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36',
+    $('a').each((i, el) => {
+        const href = $(el).attr('href');
+        const text = $(el).text().trim();
+        if (href && /\/20\d{2}\//.test(href)) {
+            folders.push({
+                name: text,
+                url: new URL(href, baseUrl).toString(),
+                folderName: href.replace(/\//g, '').replace(/^\//, '')
+            });
         }
     });
-    if (!response.ok) throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
-    return response.text();
+
+    return folders;
+}
+
+function getPriority(folder, currentYear) {
+    const year = parseInt(folder.folderName);
+    if (year === currentYear) return 1;
+    if (year === currentYear - 1) return 2;
+    return 3;
+}
+
+async function discoverMoviesInFolder(folderUrl) {
+    const html = await fetchHtml(folderUrl);
+    const $ = cheerio.load(html);
+    const movies = [];
+
+    $('a').each((i, el) => {
+        const href = $(el).attr('href');
+        if (href && !href.includes('../') && href.endsWith('/')) {
+            movies.push(href);
+        }
+    });
+
+    return movies;
+}
+
+async function queueMovies(movies, folder, priority) {
+    if (movies.length === 0) return 0;
+
+    const queueData = movies.map(url => ({
+        url,
+        folder,
+        status: 'pending',
+        priority
+    }));
+
+    const { error } = await supabase
+        .from('scrape_queue')
+        .upsert(queueData, { onConflict: 'url', ignoreDuplicates: true });
+
+    if (error) console.error('Queue error:', error.message);
+    return movies.length;
 }
 
 async function crawlIndex() {
     console.log('Starting Index Crawler...');
-    
+
+    const isRateLimited = await checkRateLimit(15);
+    if (isRateLimited) {
+        console.log('Rate limited, skipping crawl.');
+        return;
+    }
+
+    const triggerBy = process.env.TRIGGER_BY || 'scheduler';
+    await startRefresh(triggerBy);
+
     try {
-        const homeHtml = await homeFetchWithRetry(SOURCE_BASE_URL);
-        const $ = cheerio.load(homeHtml);
-        
-        // TODO: adjust selector to match source site HTML for year folder links
-        const folderLinks = [];
-        $('a').each((i, el) => {
-            const href = $(el).attr('href');
-            const text = $(el).text().trim();
-            // Heuristic to find year folders (e.g. "2024", "2025")
-            if (href && /\/20\d{2}\//.test(href)) {
-                folderLinks.push({ 
-                    name: text, 
-                    url: new URL(href, SOURCE_BASE_URL).toString(),
-                    folderName: href.replace(/\//g, '')
-                });
-            }
-        });
+        const baseUrl = await getSourceUrl();
+        console.log(`Source: ${baseUrl}`);
 
-        console.log(`Found ${folderLinks.length} potential year folders.`);
+        const folders = await discoverFolders(baseUrl);
+        console.log(`Found ${folders.length} year folders`);
 
-        for (const folder of folderLinks) {
-            console.log(`Processing folder: ${folder.folderName}...`);
-            await processFolder(folder);
-            await delay(1000); // Polite delay
+        if (folders.length === 0) {
+            throw new Error('No folders found');
         }
 
+        const currentYear = new Date().getFullYear();
+        folders.sort((a, b) => getPriority(a, currentYear) - getPriority(b, currentYear));
+
+        let totalQueued = 0;
+
+        for (const folder of folders) {
+            const priority = getPriority(folder, currentYear);
+            console.log(`[${folder.folderName}] Priority ${priority}...`);
+
+            const movies = await discoverMoviesInFolder(folder.url);
+            const movieCount = movies.length;
+            console.log(`[${folder.folderName}] Found ${movieCount} movies`);
+
+            if (movieCount === 0) continue;
+
+            await queueMovies(movies, folder.folderName, priority);
+            totalQueued += movieCount;
+
+            await updateFolderState(folder.folderName, movieCount);
+
+            if (totalQueued >= BATCH_SIZE) {
+                console.log(`Batch limit reached (${BATCH_SIZE}), pausing ${BATCH_DELAY_MS / 1000}s...`);
+                await delay(BATCH_DELAY_MS);
+                totalQueued = 0;
+            } else {
+                await delay(FOLDER_DELAY_MS);
+            }
+        }
+
+        await finishRefresh('completed');
         console.log('Index Crawler finished.');
     } catch (err) {
         console.error('Crawler Error:', err.message);
+        await finishRefresh('failed');
     }
 }
 
-async function homeFetchWithRetry(url, retries = 3) {
-    for (let i = 0; i < retries; i++) {
-        try {
-            return await fetchHtml(url);
-        } catch (err) {
-            if (i === retries - 1) throw err;
-            console.warn(`Retry ${i + 1}/${retries} for ${url}`);
-            await delay(2000);
-        }
-    }
-}
-
-async function processFolder(folder) {
-    const currentYear = new Date().getFullYear().toString();
-    const isCurrentYear = folder.folderName.includes(currentYear);
-    
-    try {
-        const folderHtml = await fetchHtml(folder.url);
-        const $ = cheerio.load(folderHtml);
-        
-        // TODO: adjust selector to match source site HTML for movie links
-        const movieUrls = [];
-        $('a').each((i, el) => {
-            const href = $(el).attr('href');
-            if (href && !href.includes('../') && !href.endsWith('/')) {
-                 movieUrls.push(new URL(href, folder.url).toString());
-            }
-        });
-
-        const latestCount = movieUrls.length;
-        console.log(`Found ${latestCount} movie links in ${folder.folderName}`);
-
-        // Get folder state
-        const { data: folderState } = await supabase
-            .from('folder_state')
-            .select('*')
-            .eq('folder', folder.folderName)
-            .single();
-
-        const shouldQueueAll = isCurrentYear || !folderState || folderState.last_known_count !== latestCount;
-
-        if (shouldQueueAll) {
-            console.log(`Queueing ${movieUrls.length} URLs for ${folder.folderName}...`);
-            
-            // Priority 1 for current year, 2 for others
-            const priority = isCurrentYear ? 1 : 2;
-            
-            const queueData = movieUrls.map(url => ({
-                url,
-                folder: folder.folderName,
-                status: 'pending',
-                priority
-            }));
-
-            // Batch insert, skipping duplicates via 'onConflict' if supported, 
-            // or simply using a loop if it's cleaner. Supabase JS client doesn't directly
-            // support 'ON CONFLICT DO NOTHING' for bulk inserts without a constraint.
-            // We'll rely on a UNIQUE constraint on 'url' in the DB.
-            const { error: queueError } = await supabase
-                .from('scrape_queue')
-                .upsert(queueData, { onConflict: 'url', ignoreDuplicates: true });
-
-            if (queueError) console.error(`Error queueing for ${folder.folderName}:`, queueError.message);
-        } else {
-            console.log(`No changes in ${folder.folderName}, skipping.`);
-        }
-
-        // Update folder state
-        await supabase
-            .from('folder_state')
-            .upsert({ 
-                folder: folder.folderName, 
-                last_scraped_at: new Date().toISOString(),
-                last_known_count: latestCount
-            }, { onConflict: 'folder' });
-
-    } catch (err) {
-        console.error(`Error processing folder ${folder.folderName}:`, err.message);
-    }
-}
-
+import { supabase } from './lib/supabase.js';
 crawlIndex();
