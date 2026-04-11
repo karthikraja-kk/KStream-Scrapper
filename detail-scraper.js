@@ -101,16 +101,12 @@ async function findQualityLinks(html, baseUrl) {
         const href = $(el).attr('href');
         const text = $(el).text().trim().toLowerCase();
 
-        if (href && !href.includes('../') && href.endsWith('/')) {
+        if (href && !href.includes('../') && href.endsWith('/') && !text.includes('(original)')) {
             let quality = 'Unknown';
 
-            if (text.includes('720p') || text.includes('hd')) quality = '720p';
-            else if (text.includes('1080p')) quality = '1080p';
+            if (text.includes('1080p')) quality = '1080p';
+            else if (text.includes('720p')) quality = '720p';
             else if (text.includes('360p')) quality = '360p';
-            else if (text.includes('original')) quality = 'Original';
-            else if (text.includes('hq') || text.includes('predvd')) quality = 'HQ PreDVD';
-            else if (text.includes('dvdrip') || text.includes('dvd')) quality = 'DVDRip';
-            else if (text.includes('webrip') || text.includes('web')) quality = 'WEBRip';
 
             if (quality !== 'Unknown') {
                 qualities.push({
@@ -125,7 +121,7 @@ async function findQualityLinks(html, baseUrl) {
 }
 
 async function getDownloadLinks(qualityPageUrl) {
-    if (!qualityPageUrl) return { download_url_1: '', watch_url_1: '', file_size: null };
+    if (!qualityPageUrl) return { download_url_1: '', download_url_2: '', watch_url_1: '', watch_url_2: '', file_size: null, duration: null };
 
     try {
         const html = await fetchHtml(qualityPageUrl);
@@ -133,38 +129,186 @@ async function getDownloadLinks(qualityPageUrl) {
 
         let downloadUrl = '';
         let watchUrl = '';
+        let downloadServer2 = '';
+        let watchServer2 = '';
         let fileSize = null;
+        let duration = null;
 
-        $('a[href*="download"]').each((i, el) => {
+        // Get the download link from quality page
+        $('a[href*="/download/"]').each((i, el) => {
             const href = $(el).attr('href');
-            if (href && href.startsWith('http') && !downloadUrl) {
-                downloadUrl = href;
-            } else if (href && href.startsWith('http') && href.includes('stream') && !watchUrl) {
-                watchUrl = href;
+            if (href) {
+                const fullUrl = new URL(href, qualityPageUrl).toString();
+                if (!downloadUrl) downloadUrl = fullUrl;
             }
         });
 
+        // If no download URL found, try other pattern
         if (!downloadUrl) {
-            $('a[href*="/download/"]').each((i, el) => {
+            $('a[href*="download"]').each((i, el) => {
                 const href = $(el).attr('href');
-                if (href) {
-                    const fullUrl = new URL(href, qualityPageUrl).toString();
-                    downloadUrl = fullUrl;
+                if (href && href.startsWith('http') && !downloadUrl) {
+                    downloadUrl = href;
+                } else if (href && href.startsWith('http') && href.includes('stream') && !watchUrl) {
+                    watchUrl = href;
                 }
             });
         }
 
-        $('li').each((i, el) => {
-            const text = $(el).text();
-            if (text.includes('File Size:')) {
-                const match = text.match(/File Size:\s*(.+)/i);
-                if (match) fileSize = match[1].trim();
-            }
-        });
+        // Fetch the download page to get file_size, duration, and server links
+        if (downloadUrl && downloadUrl.includes('/download/')) {
+            try {
+                const dlPageHtml = await fetchHtml(downloadUrl);
+                const $dl = cheerio.load(dlPageHtml);
 
-        return { download_url_1: downloadUrl, watch_url_1: watchUrl, file_size: fileSize };
+                $dl('.details').each((i, el) => {
+                    const text = $(el).text();
+                    if (text.includes('File Size:')) {
+                        const match = text.match(/File Size:\s*(.+)/i);
+                        if (match) fileSize = match[1].trim();
+                    }
+                    if (text.includes('Duration:')) {
+                        const match = text.match(/Duration:\s*(.+)/i);
+                        if (match) duration = match[1].trim();
+                    }
+                });
+
+                // Also try JSON-LD
+                const jsonLd = $dl('script[type="application/ld+json"]').html();
+                if (jsonLd) {
+                    try {
+                        const data = JSON.parse(jsonLd);
+                        if (data.duration) {
+                            duration = data.duration.replace('PT', '').toLowerCase();
+                        }
+                    } catch (e) {}
+                }
+
+                // Get download server links (server 1 and server 2)
+                let movieServer1 = '';
+                let movieServer2 = '';
+
+                $dl('.dlink a').each((i, el) => {
+                    const href = $(el).attr('href');
+                    const text = $(el).text().toLowerCase();
+                    if (text.includes('server 1') && href) movieServer1 = href;
+                    if (text.includes('server 2') && href) movieServer2 = href;
+                });
+
+                // Fetch server 1 page - this may redirect to another page with Download Server 1/2
+                if (movieServer1) {
+                    try {
+                        const server1Html = await fetchHtml(movieServer1);
+                        const $srv1 = cheerio.load(server1Html);
+
+                        // Get links for both download server 1 and download server 2 from this page
+                        let downloadServer1Url = '';
+                        let downloadServer2Url = '';
+                        let watchServer1Url = '';
+                        let watchServer2Url = '';
+
+                        $srv1('.dlink a').each((i, el) => {
+                            const href = $(el).attr('href');
+                            const text = $(el).text().toLowerCase();
+                            if (text.includes('download server 1') && href) downloadServer1Url = href;
+                            if (text.includes('download server 2') && href) downloadServer2Url = href;
+                            if (text.includes('watch online server 1') && href) watchServer1Url = href;
+                            if (text.includes('watch online server 2') && href) watchServer2Url = href;
+                        });
+
+                        // Follow Download Server 1 to get final download_url_1 and watch_url_1
+                        if (downloadServer1Url) {
+                            try {
+                                const dl1Html = await fetchHtml(downloadServer1Url);
+                                const $dl1 = cheerio.load(dl1Html);
+
+                                $dl1('.dlink a').each((i, el) => {
+                                    const href = $(el).attr('href');
+                                    const text = $(el).text().toLowerCase();
+                                    if (text.includes('download') && !text.includes('watch') && href && !downloadUrl) {
+                                        downloadUrl = href;
+                                    }
+                                });
+
+                                // Get watch URL from this page
+                                let watchServer1Final = '';
+                                $dl1('.dlink a').each((i, el) => {
+                                    const href = $(el).attr('href');
+                                    const text = $(el).text().toLowerCase();
+                                    if (text.includes('watch online server 1') && href) {
+                                        watchServer1Final = href;
+                                    }
+                                    if (text.includes('watch online server 2') && href) {
+                                        downloadServer2 = href;
+                                    }
+                                });
+
+                                // Follow watch page to get actual video URL
+                                if (watchServer1Final) {
+                                    try {
+                                        const watch1Html = await fetchHtml(watchServer1Final);
+                                        const $w1 = cheerio.load(watch1Html);
+                                        $w1('source').each((i, el) => {
+                                            const src = $w1(el).attr('src');
+                                            if (src && !watchUrl) watchUrl = src;
+                                        });
+                                    } catch (e) {}
+                                }
+                            } catch (e) {}
+                        }
+
+                        // Follow Download Server 2 to get final download_url_2
+                        if (downloadServer2Url) {
+                            try {
+                                const dl2Html = await fetchHtml(downloadServer2Url);
+                                const $dl2 = cheerio.load(dl2Html);
+
+                                $dl2('.dlink a').each((i, el) => {
+                                    const href = $(el).attr('href');
+                                    const text = $(el).text().toLowerCase();
+                                    if (text.includes('download') && !text.includes('watch') && href) {
+                                        downloadServer2 = href;
+                                    }
+                                });
+
+                                // Get watch URL 2 from this page
+                                let watchServer2Final = '';
+                                if (!watchServer2) {
+                                    $dl2('.dlink a').each((i, el) => {
+                                        const href = $(el).attr('href');
+                                        const text = $(el).text().toLowerCase();
+                                        if (text.includes('watch online server 2') && href) {
+                                            watchServer2Final = href;
+                                        }
+                                    });
+
+                                    // Follow watch page 2 to get actual video URL
+                                    if (watchServer2Final) {
+                                        try {
+                                            const watch2Html = await fetchHtml(watchServer2Final);
+                                            const $w2 = cheerio.load(watch2Html);
+                                            $w2('source').each((i, el) => {
+                                                const src = $w2(el).attr('src');
+                                                if (src) watchServer2 = src;
+                                            });
+                                        } catch (e) {}
+                                    }
+                                }
+                            } catch (e) {}
+                        }
+
+                        // Fallback to watch URLs from redirect page if not found
+                        if (!watchUrl && watchServer1Url) watchUrl = watchServer1Url;
+                    } catch (e) {}
+                }
+            } catch (e) {
+                // Continue even if download page fails
+            }
+        }
+
+        return { download_url_1: downloadUrl, download_url_2: downloadServer2, watch_url_1: watchUrl, watch_url_2: watchServer2, file_size: fileSize, duration: duration };
     } catch (e) {
-        return { download_url_1: '', watch_url_1: '', file_size: null };
+        return { download_url_1: '', download_url_2: '', watch_url_1: '', watch_url_2: '', file_size: null, duration: null };
     }
 }
 
@@ -217,8 +361,11 @@ async function scrapeMovieDetails(item) {
                 movie_id: movieId,
                 quality: q.quality,
                 file_size: downloadLinks.file_size,
+                duration: downloadLinks.duration,
                 download_url_1: downloadLinks.download_url_1 || q.url,
-                watch_url_1: downloadLinks.watch_url_1
+                download_url_2: downloadLinks.download_url_2 || null,
+                watch_url_1: downloadLinks.watch_url_1 || null,
+                watch_url_2: downloadLinks.watch_url_2 || null
             });
             await delay(500);
         }
