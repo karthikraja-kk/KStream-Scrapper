@@ -125,7 +125,7 @@ async function findQualityLinks(html, baseUrl) {
 }
 
 async function getDownloadLinks(qualityPageUrl) {
-    if (!qualityPageUrl) return { download_url_1: '', watch_url_1: '' };
+    if (!qualityPageUrl) return { download_url_1: '', watch_url_1: '', file_size: null };
 
     try {
         const html = await fetchHtml(qualityPageUrl);
@@ -133,6 +133,7 @@ async function getDownloadLinks(qualityPageUrl) {
 
         let downloadUrl = '';
         let watchUrl = '';
+        let fileSize = null;
 
         $('a[href*="download"]').each((i, el) => {
             const href = $(el).attr('href');
@@ -153,9 +154,17 @@ async function getDownloadLinks(qualityPageUrl) {
             });
         }
 
-        return { download_url_1: downloadUrl, watch_url_1: watchUrl };
+        $('li').each((i, el) => {
+            const text = $(el).text();
+            if (text.includes('File Size:')) {
+                const match = text.match(/File Size:\s*(.+)/i);
+                if (match) fileSize = match[1].trim();
+            }
+        });
+
+        return { download_url_1: downloadUrl, watch_url_1: watchUrl, file_size: fileSize };
     } catch (e) {
-        return { download_url_1: '', watch_url_1: '' };
+        return { download_url_1: '', watch_url_1: '', file_size: null };
     }
 }
 
@@ -207,6 +216,7 @@ async function scrapeMovieDetails(item) {
             await supabase.from('media').insert({
                 movie_id: movieId,
                 quality: q.quality,
+                file_size: downloadLinks.file_size,
                 download_url_1: downloadLinks.download_url_1 || q.url,
                 watch_url_1: downloadLinks.watch_url_1
             });

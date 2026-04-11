@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS media (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     movie_id UUID REFERENCES movies(id) ON DELETE CASCADE,
     quality TEXT NOT NULL,
+    file_size TEXT,
     watch_url_1 TEXT,
     watch_url_2 TEXT,
     download_url_1 TEXT,
