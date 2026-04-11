@@ -68,26 +68,28 @@ function extractMovieDetails(html, url) {
         if (strong.includes('Run Time') || strong.includes('Duration')) durationText = span;
     });
 
-    const synopsis = $('.movie-synopsis').text().replace(/Synopsis:/i, '').trim() || '';
+    const synopsisText = $('.movie-synopsis').text().replace(/Synopsis:/i, '').trim();
+    const synopsis = synopsisText || null;
 
     const director = directorText ? [directorText] : [];
     const cast = castText ? castText.split(',').map(c => c.trim()).filter(c => c) : [];
     const genres = genreText ? genreText.split(',').map(g => g.trim()).filter(g => g) : [];
     const rating = ratingText ? ratingText.replace('/10', '').trim() : '';
+    const poster = posterFullUrl || null;
 
     return {
         movie_url: url,
-        movie_name: title.replace(/\s*\(\d{4}\)/, '').replace(/\s+Tamil\s*Movie.*$/i, '').trim(),
+        movie_name: (title.replace(/\s*\(\d{4}\)/, '').replace(/\s+Tamil\s*Movie.*$/i, '') || null),
         year,
         duration: durationText || null,
         synopsis,
         director: director.length > 0 ? director : null,
         cast_members: cast.length > 0 ? cast : null,
         genres: genres.length > 0 ? genres : null,
-        type: typeText || '',
+        type: typeText || null,
         language: languageText || 'Tamil',
-        rating,
-        poster_url: posterFullUrl
+        rating: rating || null,
+        poster_url: poster
     };
 }
 
@@ -221,39 +223,44 @@ async function scrapeDetails() {
     try {
         await cleanQueue();
 
-        const queueItems = await getQueueItems(BATCH_SIZE);
-        console.log(`Processing ${queueItems.length} items from queue...`);
+        let totalProcessed = 0;
+        let batchNum = 0;
 
-        if (queueItems.length === 0) {
-            console.log('No pending items.');
-            await finishRefresh('completed');
-            return;
-        }
-
-        let processed = 0;
-
-        for (const item of queueItems) {
-            try {
-                console.log(`Scraping: ${item.url}...`);
-                const title = await scrapeMovieDetails(item);
-                console.log(`Done: ${title}`);
-
-                await updateQueueStatus(item.id, 'done');
-                processed++;
-
-                if (processed % BATCH_SIZE === 0) {
-                    console.log(`Batch limit reached, pausing ${BATCH_DELAY_MS / 1000}s...`);
-                    await delay(BATCH_DELAY_MS);
-                } else {
-                    await delay(MOVIE_DELAY_MS);
-                }
-            } catch (err) {
-                console.error(`Error: ${item.url}: ${err.message}`);
-                await updateQueueStatus(item.id, 'error', err.message);
+        while (true) {
+            const queueItems = await getQueueItems(BATCH_SIZE);
+            if (queueItems.length === 0) {
+                console.log('No more pending items.');
+                break;
             }
+
+            batchNum++;
+            console.log(`Batch ${batchNum}: Processing ${queueItems.length} items...`);
+
+            for (const item of queueItems) {
+                try {
+                    console.log(`Scraping: ${item.url}...`);
+                    const title = await scrapeMovieDetails(item);
+                    console.log(`Done: ${title}`);
+
+                    await updateQueueStatus(item.id, 'done');
+                    totalProcessed++;
+                    await delay(MOVIE_DELAY_MS);
+                } catch (err) {
+                    console.error(`Error: ${item.url}: ${err.message}`);
+                    await updateQueueStatus(item.id, 'error', err.message);
+                }
+            }
+
+            if (queueItems.length < BATCH_SIZE) {
+                console.log('All items processed.');
+                break;
+            }
+
+            console.log(`Batch ${batchNum} complete, pausing ${BATCH_DELAY_MS / 1000}s...`);
+            await delay(BATCH_DELAY_MS);
         }
 
-        console.log(`Detail Scraper finished. Processed ${processed} movies.`);
+        console.log(`Detail Scraper finished. Processed ${totalProcessed} movies total.`);
         await finishRefresh('completed');
     } catch (err) {
         console.error('Scraper Error:', err.message);
