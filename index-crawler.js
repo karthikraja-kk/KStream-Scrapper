@@ -15,12 +15,15 @@ async function discoverFolders(baseUrl) {
     $('a').each((i, el) => {
         const href = $(el).attr('href');
         const text = $(el).text().trim();
-        if (href && /\/20\d{2}\//.test(href)) {
-            folders.push({
-                name: text,
-                url: new URL(href, baseUrl).toString(),
-                folderName: href.replace(/\//g, '').replace(/^\//, '')
-            });
+        if (href && /\/tamil-\d{4}/.test(href)) {
+            const match = href.match(/tamil-(\d{4})/);
+            if (match) {
+                folders.push({
+                    name: text || `Tamil ${match[1]}`,
+                    url: new URL(href, baseUrl).toString(),
+                    folderName: match[1]
+                });
+            }
         }
     });
 
@@ -41,7 +44,7 @@ async function discoverMoviesInFolder(folderUrl) {
 
     $('a').each((i, el) => {
         const href = $(el).attr('href');
-        if (href && !href.includes('../') && href.endsWith('/')) {
+        if (href && /-tamil-movie\/|-tamil-web-series\//.test(href)) {
             movies.push(href);
         }
     });
