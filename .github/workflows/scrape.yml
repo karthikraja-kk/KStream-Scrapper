@@ -42,3 +42,14 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           TRIGGER_BY: ${{ github.event.inputs.trigger || 'scheduler' }}
+
+      - name: Check Results
+        run: |
+          COUNT=$(curl -s -H "apikey: ${{ secrets.SUPABASE_SERVICE_KEY }}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/movies?select=count" \
+            -H "Count: exact" | grep -o '"count":[0-9]*' | grep -o '[0-9]*' || echo "0")
+          echo "Movies in database: $COUNT"
+          if [ "$COUNT" = "0" ]; then
+            echo "No movies found - workflow will fail"
+            exit 1
+          fi
