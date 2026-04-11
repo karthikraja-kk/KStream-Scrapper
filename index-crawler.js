@@ -45,7 +45,11 @@ async function discoverMoviesInFolder(folderUrl) {
     $('a').each((i, el) => {
         const href = $(el).attr('href');
         if (href && /-tamil-movie\/|-tamil-web-series\//.test(href)) {
-            movies.push(href);
+            try {
+                movies.push(new URL(href, folderUrl).toString());
+            } catch (e) {
+                console.log(`Skipping invalid href: ${href}`);
+            }
         }
     });
 

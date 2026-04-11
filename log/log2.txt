@@ -1,0 +1,416 @@
+2026-04-11T03:06:07.1304444Z Current runner version: '2.333.1'
+2026-04-11T03:06:07.1330526Z ##[group]Runner Image Provisioner
+2026-04-11T03:06:07.1331469Z Hosted Compute Agent
+2026-04-11T03:06:07.1332006Z Version: 20260213.493
+2026-04-11T03:06:07.1332617Z Commit: 5c115507f6dd24b8de37d8bbe0bb4509d0cc0fa3
+2026-04-11T03:06:07.1333380Z Build Date: 2026-02-13T00:28:41Z
+2026-04-11T03:06:07.1334007Z Worker ID: {5eb53cc5-5d23-457f-ae00-9213b3c01064}
+2026-04-11T03:06:07.1334711Z Azure Region: northcentralus
+2026-04-11T03:06:07.1335333Z ##[endgroup]
+2026-04-11T03:06:07.1336872Z ##[group]Operating System
+2026-04-11T03:06:07.1337484Z Ubuntu
+2026-04-11T03:06:07.1338047Z 24.04.4
+2026-04-11T03:06:07.1338882Z LTS
+2026-04-11T03:06:07.1339440Z ##[endgroup]
+2026-04-11T03:06:07.1340022Z ##[group]Runner Image
+2026-04-11T03:06:07.1340686Z Image: ubuntu-24.04
+2026-04-11T03:06:07.1341370Z Version: 20260406.80.1
+2026-04-11T03:06:07.1342796Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260406.80/images/ubuntu/Ubuntu2404-Readme.md
+2026-04-11T03:06:07.1344241Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260406.80
+2026-04-11T03:06:07.1345216Z ##[endgroup]
+2026-04-11T03:06:07.1346313Z ##[group]GITHUB_TOKEN Permissions
+2026-04-11T03:06:07.1349007Z Contents: read
+2026-04-11T03:06:07.1349580Z Metadata: read
+2026-04-11T03:06:07.1350103Z Packages: read
+2026-04-11T03:06:07.1350711Z ##[endgroup]
+2026-04-11T03:06:07.1353053Z Secret source: Actions
+2026-04-11T03:06:07.1353752Z Prepare workflow directory
+2026-04-11T03:06:07.1705701Z Prepare all required actions
+2026-04-11T03:06:07.1743732Z Getting action download info
+2026-04-11T03:06:07.4969236Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+2026-04-11T03:06:07.6541348Z Download action repository 'actions/setup-node@v4' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+2026-04-11T03:06:07.8451039Z Complete job name: scrape
+2026-04-11T03:06:07.9158466Z ##[group]Run actions/checkout@v4
+2026-04-11T03:06:07.9159387Z with:
+2026-04-11T03:06:07.9159865Z   repository: karthikraja-kk/KStream-Scrapper
+2026-04-11T03:06:07.9160591Z   token: ***
+2026-04-11T03:06:07.9160987Z   ssh-strict: true
+2026-04-11T03:06:07.9161393Z   ssh-user: git
+2026-04-11T03:06:07.9161797Z   persist-credentials: true
+2026-04-11T03:06:07.9162260Z   clean: true
+2026-04-11T03:06:07.9162668Z   sparse-checkout-cone-mode: true
+2026-04-11T03:06:07.9163253Z   fetch-depth: 1
+2026-04-11T03:06:07.9163656Z   fetch-tags: false
+2026-04-11T03:06:07.9164114Z   show-progress: true
+2026-04-11T03:06:07.9164527Z   lfs: false
+2026-04-11T03:06:07.9164900Z   submodules: false
+2026-04-11T03:06:07.9165313Z   set-safe-directory: true
+2026-04-11T03:06:07.9166013Z ##[endgroup]
+2026-04-11T03:06:08.0251136Z Syncing repository: karthikraja-kk/KStream-Scrapper
+2026-04-11T03:06:08.0252902Z ##[group]Getting Git version info
+2026-04-11T03:06:08.0253754Z Working directory is '/home/runner/work/KStream-Scrapper/KStream-Scrapper'
+2026-04-11T03:06:08.0254786Z [command]/usr/bin/git version
+2026-04-11T03:06:08.0292863Z git version 2.53.0
+2026-04-11T03:06:08.0319076Z ##[endgroup]
+2026-04-11T03:06:08.0333338Z Temporarily overriding HOME='/home/runner/work/_temp/852ef866-6989-4e53-ba8e-63cb4c6cc3e8' before making global git config changes
+2026-04-11T03:06:08.0334746Z Adding repository directory to the temporary git global config as a safe directory
+2026-04-11T03:06:08.0338956Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/KStream-Scrapper/KStream-Scrapper
+2026-04-11T03:06:08.0381822Z Deleting the contents of '/home/runner/work/KStream-Scrapper/KStream-Scrapper'
+2026-04-11T03:06:08.0385819Z ##[group]Initializing the repository
+2026-04-11T03:06:08.0391012Z [command]/usr/bin/git init /home/runner/work/KStream-Scrapper/KStream-Scrapper
+2026-04-11T03:06:08.0484730Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-04-11T03:06:08.0486004Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-04-11T03:06:08.0486958Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-04-11T03:06:08.0488607Z hint: call:
+2026-04-11T03:06:08.0489149Z hint:
+2026-04-11T03:06:08.0489941Z hint: 	git config --global init.defaultBranch <name>
+2026-04-11T03:06:08.0490522Z hint:
+2026-04-11T03:06:08.0491059Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-04-11T03:06:08.0492380Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-04-11T03:06:08.0493147Z hint:
+2026-04-11T03:06:08.0493533Z hint: 	git branch -m <name>
+2026-04-11T03:06:08.0493974Z hint:
+2026-04-11T03:06:08.0494561Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-04-11T03:06:08.0495633Z Initialized empty Git repository in /home/runner/work/KStream-Scrapper/KStream-Scrapper/.git/
+2026-04-11T03:06:08.0499096Z [command]/usr/bin/git remote add origin https://github.com/karthikraja-kk/KStream-Scrapper
+2026-04-11T03:06:08.0531519Z ##[endgroup]
+2026-04-11T03:06:08.0532296Z ##[group]Disabling automatic garbage collection
+2026-04-11T03:06:08.0536041Z [command]/usr/bin/git config --local gc.auto 0
+2026-04-11T03:06:08.0565722Z ##[endgroup]
+2026-04-11T03:06:08.0566397Z ##[group]Setting up auth
+2026-04-11T03:06:08.0573294Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-04-11T03:06:08.0604193Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-04-11T03:06:08.0885668Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-04-11T03:06:08.0914976Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-04-11T03:06:08.1157038Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-04-11T03:06:08.1188198Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-04-11T03:06:08.1450457Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-04-11T03:06:08.1490730Z ##[endgroup]
+2026-04-11T03:06:08.1492194Z ##[group]Fetching the repository
+2026-04-11T03:06:08.1500395Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +7c2cd615480707cacf327cfa2b04ecebac88a366:refs/remotes/origin/main
+2026-04-11T03:06:08.3618966Z From https://github.com/karthikraja-kk/KStream-Scrapper
+2026-04-11T03:06:08.3620938Z  * [new ref]         7c2cd615480707cacf327cfa2b04ecebac88a366 -> origin/main
+2026-04-11T03:06:08.3648568Z ##[endgroup]
+2026-04-11T03:06:08.3649795Z ##[group]Determining the checkout info
+2026-04-11T03:06:08.3651325Z ##[endgroup]
+2026-04-11T03:06:08.3656652Z [command]/usr/bin/git sparse-checkout disable
+2026-04-11T03:06:08.3696052Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-04-11T03:06:08.3723248Z ##[group]Checking out the ref
+2026-04-11T03:06:08.3728079Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-04-11T03:06:08.3777159Z Switched to a new branch 'main'
+2026-04-11T03:06:08.3780176Z branch 'main' set up to track 'origin/main'.
+2026-04-11T03:06:08.3786503Z ##[endgroup]
+2026-04-11T03:06:08.3821392Z [command]/usr/bin/git log -1 --format=%H
+2026-04-11T03:06:08.3843695Z 7c2cd615480707cacf327cfa2b04ecebac88a366
+2026-04-11T03:06:08.4087222Z ##[group]Run actions/setup-node@v4
+2026-04-11T03:06:08.4087751Z with:
+2026-04-11T03:06:08.4088096Z   node-version: 24
+2026-04-11T03:06:08.4088961Z   cache: npm
+2026-04-11T03:06:08.4089387Z   cache-dependency-path: package.json
+2026-04-11T03:06:08.4089894Z   always-auth: false
+2026-04-11T03:06:08.4090301Z   check-latest: false
+2026-04-11T03:06:08.4090873Z   token: ***
+2026-04-11T03:06:08.4091468Z ##[endgroup]
+2026-04-11T03:06:08.5901546Z Found in cache @ /opt/hostedtoolcache/node/24.14.1/x64
+2026-04-11T03:06:08.5909267Z ##[group]Environment details
+2026-04-11T03:06:08.8834346Z node: v24.14.1
+2026-04-11T03:06:08.8835164Z npm: 11.11.0
+2026-04-11T03:06:08.8835772Z yarn: 1.22.22
+2026-04-11T03:06:08.8837141Z ##[endgroup]
+2026-04-11T03:06:08.8859643Z [command]/opt/hostedtoolcache/node/24.14.1/x64/bin/npm config get cache
+2026-04-11T03:06:08.9959300Z /home/runner/.npm
+2026-04-11T03:06:09.1401397Z Cache hit for: node-cache-Linux-x64-npm-a91271e1f146469f87eac4b5a77cea09bac2104a70e1943a2f85f9a6be772638
+2026-04-11T03:06:09.5995062Z Received 3145242 of 3145242 (100.0%), 8.7 MBs/sec
+2026-04-11T03:06:09.5995850Z Cache Size: ~3 MB (3145242 B)
+2026-04-11T03:06:09.6022342Z [command]/usr/bin/tar -xf /home/runner/work/_temp/f9e853dc-2aed-486c-8f4c-b4354c1f5564/cache.tzst -P -C /home/runner/work/KStream-Scrapper/KStream-Scrapper --use-compress-program unzstd
+2026-04-11T03:06:09.6197928Z Cache restored successfully
+2026-04-11T03:06:09.6205591Z Cache restored from key: node-cache-Linux-x64-npm-a91271e1f146469f87eac4b5a77cea09bac2104a70e1943a2f85f9a6be772638
+2026-04-11T03:06:09.6326187Z ##[group]Run npm install
+2026-04-11T03:06:09.6326564Z [36;1mnpm install[0m
+2026-04-11T03:06:09.6361064Z shell: /usr/bin/bash -e {0}
+2026-04-11T03:06:09.6361415Z ##[endgroup]
+2026-04-11T03:06:10.4693957Z npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+2026-04-11T03:06:10.8927152Z 
+2026-04-11T03:06:10.8928556Z added 36 packages, and audited 37 packages in 1s
+2026-04-11T03:06:10.8929368Z 
+2026-04-11T03:06:10.8930152Z 17 packages are looking for funding
+2026-04-11T03:06:10.8930834Z   run `npm fund` for details
+2026-04-11T03:06:10.8940354Z 
+2026-04-11T03:06:10.8940997Z found 0 vulnerabilities
+2026-04-11T03:06:10.9468746Z ##[group]Run node index-crawler.js
+2026-04-11T03:06:10.9469166Z [36;1mnode index-crawler.js[0m
+2026-04-11T03:06:10.9492680Z shell: /usr/bin/bash -e {0}
+2026-04-11T03:06:10.9492962Z env:
+2026-04-11T03:06:10.9493541Z   SUPABASE_URL: ***
+2026-04-11T03:06:10.9493884Z   SUPABASE_SERVICE_KEY: ***
+2026-04-11T03:06:10.9494125Z   TRIGGER_BY: user
+2026-04-11T03:06:10.9494349Z ##[endgroup]
+2026-04-11T03:06:11.1477306Z Starting Index Crawler...
+2026-04-11T03:06:13.1609627Z Source: https://moviesda18.com
+2026-04-11T03:06:13.5070398Z Found 17 year folders
+2026-04-11T03:06:13.5071217Z [2026] Priority 1...
+2026-04-11T03:06:13.7146616Z [2026] Found 20 movies
+2026-04-11T03:06:19.0825660Z [2025] Priority 2...
+2026-04-11T03:06:19.3006020Z [2025] Found 18 movies
+2026-04-11T03:06:25.0462281Z [2021] Priority 3...
+2026-04-11T03:06:25.2593837Z [2021] Found 0 movies
+2026-04-11T03:06:25.2594401Z [2021] Priority 3...
+2026-04-11T03:06:25.4620878Z [2021] Found 0 movies
+2026-04-11T03:06:25.4621477Z [2021] Priority 3...
+2026-04-11T03:06:25.6640774Z [2021] Found 0 movies
+2026-04-11T03:06:25.6641290Z [2021] Priority 3...
+2026-04-11T03:06:25.8621173Z [2021] Found 0 movies
+2026-04-11T03:06:25.8621744Z [2024] Priority 3...
+2026-04-11T03:06:26.0649041Z [2024] Found 17 movies
+2026-04-11T03:06:26.4682024Z Batch limit reached (50), pausing 15s...
+2026-04-11T03:06:41.4687997Z [2023] Priority 3...
+2026-04-11T03:06:41.6836713Z [2023] Found 2 movies
+2026-04-11T03:06:47.1341884Z [2022] Priority 3...
+2026-04-11T03:06:47.3546855Z [2022] Found 18 movies
+2026-04-11T03:06:52.7712429Z [2021] Priority 3...
+2026-04-11T03:06:52.9832166Z [2021] Found 0 movies
+2026-04-11T03:06:52.9832681Z [2020] Priority 3...
+2026-04-11T03:06:53.1855107Z [2020] Found 0 movies
+2026-04-11T03:06:53.1856562Z [2019] Priority 3...
+2026-04-11T03:06:53.3832443Z [2019] Found 0 movies
+2026-04-11T03:06:53.3832971Z [2018] Priority 3...
+2026-04-11T03:06:53.5859928Z [2018] Found 0 movies
+2026-04-11T03:06:53.5860469Z [2017] Priority 3...
+2026-04-11T03:06:53.7836676Z [2017] Found 0 movies
+2026-04-11T03:06:53.7837069Z [2016] Priority 3...
+2026-04-11T03:06:53.9835461Z [2016] Found 20 movies
+2026-04-11T03:06:59.3935035Z [2015] Priority 3...
+2026-04-11T03:06:59.6039956Z [2015] Found 20 movies
+2026-04-11T03:07:00.0070058Z Batch limit reached (50), pausing 15s...
+2026-04-11T03:07:15.0096475Z [2012] Priority 3...
+2026-04-11T03:07:15.2247246Z [2012] Found 10 movies
+2026-04-11T03:07:21.1160997Z Index Crawler finished.
+2026-04-11T03:07:21.1282108Z ##[group]Run node detail-scraper.js
+2026-04-11T03:07:21.1282425Z [36;1mnode detail-scraper.js[0m
+2026-04-11T03:07:21.1304550Z shell: /usr/bin/bash -e {0}
+2026-04-11T03:07:21.1304779Z env:
+2026-04-11T03:07:21.1305141Z   SUPABASE_URL: ***
+2026-04-11T03:07:21.1305453Z   SUPABASE_SERVICE_KEY: ***
+2026-04-11T03:07:21.1305698Z   TRIGGER_BY: user
+2026-04-11T03:07:21.1305890Z ##[endgroup]
+2026-04-11T03:07:21.3292023Z Starting Detail Scraper...
+2026-04-11T03:07:21.5744208Z Processing 50 items from queue...
+2026-04-11T03:07:21.5745554Z Scraping: /love-insurance-kompany-2026-tamil-movie/...
+2026-04-11T03:07:21.5754314Z Retry 1/3 for /love-insurance-kompany-2026-tamil-movie/: Failed to parse URL from /love-insurance-kompany-2026-tamil-movie/
+2026-04-11T03:07:23.5775043Z Retry 2/3 for /love-insurance-kompany-2026-tamil-movie/: Failed to parse URL from /love-insurance-kompany-2026-tamil-movie/
+2026-04-11T03:07:25.5776282Z Error: /love-insurance-kompany-2026-tamil-movie/: Failed to parse URL from /love-insurance-kompany-2026-tamil-movie/
+2026-04-11T03:07:25.7967693Z Scraping: /thaai-kizhavi-2026-tamil-movie/...
+2026-04-11T03:07:25.7969617Z Retry 1/3 for /thaai-kizhavi-2026-tamil-movie/: Failed to parse URL from /thaai-kizhavi-2026-tamil-movie/
+2026-04-11T03:07:27.7990868Z Retry 2/3 for /thaai-kizhavi-2026-tamil-movie/: Failed to parse URL from /thaai-kizhavi-2026-tamil-movie/
+2026-04-11T03:07:29.7995697Z Error: /thaai-kizhavi-2026-tamil-movie/: Failed to parse URL from /thaai-kizhavi-2026-tamil-movie/
+2026-04-11T03:07:30.0119477Z Scraping: /s-saraswathi-2026-tamil-movie/...
+2026-04-11T03:07:30.0121195Z Retry 1/3 for /s-saraswathi-2026-tamil-movie/: Failed to parse URL from /s-saraswathi-2026-tamil-movie/
+2026-04-11T03:07:32.0141572Z Retry 2/3 for /s-saraswathi-2026-tamil-movie/: Failed to parse URL from /s-saraswathi-2026-tamil-movie/
+2026-04-11T03:07:34.0149340Z Error: /s-saraswathi-2026-tamil-movie/: Failed to parse URL from /s-saraswathi-2026-tamil-movie/
+2026-04-11T03:07:34.5107002Z Scraping: /naangal-2025-tamil-movie/...
+2026-04-11T03:07:34.5108113Z Retry 1/3 for /naangal-2025-tamil-movie/: Failed to parse URL from /naangal-2025-tamil-movie/
+2026-04-11T03:07:36.5130556Z Retry 2/3 for /naangal-2025-tamil-movie/: Failed to parse URL from /naangal-2025-tamil-movie/
+2026-04-11T03:07:38.5131455Z Error: /naangal-2025-tamil-movie/: Failed to parse URL from /naangal-2025-tamil-movie/
+2026-04-11T03:07:38.7374695Z Scraping: /kaakee-circus-2026-tamil-web-series/...
+2026-04-11T03:07:38.7375974Z Retry 1/3 for /kaakee-circus-2026-tamil-web-series/: Failed to parse URL from /kaakee-circus-2026-tamil-web-series/
+2026-04-11T03:07:40.7395305Z Retry 2/3 for /kaakee-circus-2026-tamil-web-series/: Failed to parse URL from /kaakee-circus-2026-tamil-web-series/
+2026-04-11T03:07:42.7414766Z Error: /kaakee-circus-2026-tamil-web-series/: Failed to parse URL from /kaakee-circus-2026-tamil-web-series/
+2026-04-11T03:07:42.9337606Z Scraping: /kadhal-kadhai-sollava-2026-tamil-movie/...
+2026-04-11T03:07:42.9339536Z Retry 1/3 for /kadhal-kadhai-sollava-2026-tamil-movie/: Failed to parse URL from /kadhal-kadhai-sollava-2026-tamil-movie/
+2026-04-11T03:07:44.9362410Z Retry 2/3 for /kadhal-kadhai-sollava-2026-tamil-movie/: Failed to parse URL from /kadhal-kadhai-sollava-2026-tamil-movie/
+2026-04-11T03:07:46.9386343Z Error: /kadhal-kadhai-sollava-2026-tamil-movie/: Failed to parse URL from /kadhal-kadhai-sollava-2026-tamil-movie/
+2026-04-11T03:07:47.1437433Z Scraping: /kadhal-reset-repeat-2026-tamil-movie/...
+2026-04-11T03:07:47.1439310Z Retry 1/3 for /kadhal-reset-repeat-2026-tamil-movie/: Failed to parse URL from /kadhal-reset-repeat-2026-tamil-movie/
+2026-04-11T03:07:49.1457687Z Retry 2/3 for /kadhal-reset-repeat-2026-tamil-movie/: Failed to parse URL from /kadhal-reset-repeat-2026-tamil-movie/
+2026-04-11T03:07:51.1476512Z Error: /kadhal-reset-repeat-2026-tamil-movie/: Failed to parse URL from /kadhal-reset-repeat-2026-tamil-movie/
+2026-04-11T03:07:51.3414097Z Scraping: /veerappan-the-bandit-king-2026-tamil-web-series/...
+2026-04-11T03:07:51.3416739Z Retry 1/3 for /veerappan-the-bandit-king-2026-tamil-web-series/: Failed to parse URL from /veerappan-the-bandit-king-2026-tamil-web-series/
+2026-04-11T03:07:53.3433453Z Retry 2/3 for /veerappan-the-bandit-king-2026-tamil-web-series/: Failed to parse URL from /veerappan-the-bandit-king-2026-tamil-web-series/
+2026-04-11T03:07:55.3458656Z Error: /veerappan-the-bandit-king-2026-tamil-web-series/: Failed to parse URL from /veerappan-the-bandit-king-2026-tamil-web-series/
+2026-04-11T03:07:55.8853558Z Scraping: /sarkeet-2025-tamil-movie/...
+2026-04-11T03:07:55.8855213Z Retry 1/3 for /sarkeet-2025-tamil-movie/: Failed to parse URL from /sarkeet-2025-tamil-movie/
+2026-04-11T03:07:57.8874567Z Retry 2/3 for /sarkeet-2025-tamil-movie/: Failed to parse URL from /sarkeet-2025-tamil-movie/
+2026-04-11T03:07:59.8883504Z Error: /sarkeet-2025-tamil-movie/: Failed to parse URL from /sarkeet-2025-tamil-movie/
+2026-04-11T03:08:00.0847663Z Scraping: /partners-2026-tamil-movie/...
+2026-04-11T03:08:00.0849146Z Retry 1/3 for /partners-2026-tamil-movie/: Failed to parse URL from /partners-2026-tamil-movie/
+2026-04-11T03:08:02.0871035Z Retry 2/3 for /partners-2026-tamil-movie/: Failed to parse URL from /partners-2026-tamil-movie/
+2026-04-11T03:08:04.0895986Z Error: /partners-2026-tamil-movie/: Failed to parse URL from /partners-2026-tamil-movie/
+2026-04-11T03:08:04.3080773Z Scraping: /sarkar-2018-tamil-movie/...
+2026-04-11T03:08:04.3082265Z Retry 1/3 for /sarkar-2018-tamil-movie/: Failed to parse URL from /sarkar-2018-tamil-movie/
+2026-04-11T03:08:06.3111085Z Retry 2/3 for /sarkar-2018-tamil-movie/: Failed to parse URL from /sarkar-2018-tamil-movie/
+2026-04-11T03:08:08.3117300Z Error: /sarkar-2018-tamil-movie/: Failed to parse URL from /sarkar-2018-tamil-movie/
+2026-04-11T03:08:08.5077423Z Scraping: /repu-udayam-10-gantalaku-2026-tamil-movie/...
+2026-04-11T03:08:08.5079411Z Retry 1/3 for /repu-udayam-10-gantalaku-2026-tamil-movie/: Failed to parse URL from /repu-udayam-10-gantalaku-2026-tamil-movie/
+2026-04-11T03:08:10.5098686Z Retry 2/3 for /repu-udayam-10-gantalaku-2026-tamil-movie/: Failed to parse URL from /repu-udayam-10-gantalaku-2026-tamil-movie/
+2026-04-11T03:08:12.5115291Z Error: /repu-udayam-10-gantalaku-2026-tamil-movie/: Failed to parse URL from /repu-udayam-10-gantalaku-2026-tamil-movie/
+2026-04-11T03:08:12.7177334Z Scraping: /saroja-samannikkallo-2026-tamil-movie/...
+2026-04-11T03:08:12.7178687Z Retry 1/3 for /saroja-samannikkallo-2026-tamil-movie/: Failed to parse URL from /saroja-samannikkallo-2026-tamil-movie/
+2026-04-11T03:08:14.7199692Z Retry 2/3 for /saroja-samannikkallo-2026-tamil-movie/: Failed to parse URL from /saroja-samannikkallo-2026-tamil-movie/
+2026-04-11T03:08:16.7224157Z Error: /saroja-samannikkallo-2026-tamil-movie/: Failed to parse URL from /saroja-samannikkallo-2026-tamil-movie/
+2026-04-11T03:08:16.9194629Z Scraping: /carmeni-selvam-2026-tamil-movie/...
+2026-04-11T03:08:16.9196155Z Retry 1/3 for /carmeni-selvam-2026-tamil-movie/: Failed to parse URL from /carmeni-selvam-2026-tamil-movie/
+2026-04-11T03:08:18.9213850Z Retry 2/3 for /carmeni-selvam-2026-tamil-movie/: Failed to parse URL from /carmeni-selvam-2026-tamil-movie/
+2026-04-11T03:08:20.9220857Z Error: /carmeni-selvam-2026-tamil-movie/: Failed to parse URL from /carmeni-selvam-2026-tamil-movie/
+2026-04-11T03:08:21.1293057Z Scraping: /neelira-2026-tamil-movie/...
+2026-04-11T03:08:21.1294835Z Retry 1/3 for /neelira-2026-tamil-movie/: Failed to parse URL from /neelira-2026-tamil-movie/
+2026-04-11T03:08:23.1318503Z Retry 2/3 for /neelira-2026-tamil-movie/: Failed to parse URL from /neelira-2026-tamil-movie/
+2026-04-11T03:08:25.1343076Z Error: /neelira-2026-tamil-movie/: Failed to parse URL from /neelira-2026-tamil-movie/
+2026-04-11T03:08:25.3399747Z Scraping: /biker-2026-tamil-movie/...
+2026-04-11T03:08:25.3401389Z Retry 1/3 for /biker-2026-tamil-movie/: Failed to parse URL from /biker-2026-tamil-movie/
+2026-04-11T03:08:27.3431087Z Retry 2/3 for /biker-2026-tamil-movie/: Failed to parse URL from /biker-2026-tamil-movie/
+2026-04-11T03:08:29.3434902Z Error: /biker-2026-tamil-movie/: Failed to parse URL from /biker-2026-tamil-movie/
+2026-04-11T03:08:29.5479123Z Scraping: /cooku-with-comali-2026-tamil-web-series/...
+2026-04-11T03:08:29.5480447Z Retry 1/3 for /cooku-with-comali-2026-tamil-web-series/: Failed to parse URL from /cooku-with-comali-2026-tamil-web-series/
+2026-04-11T03:08:31.5508058Z Retry 2/3 for /cooku-with-comali-2026-tamil-web-series/: Failed to parse URL from /cooku-with-comali-2026-tamil-web-series/
+2026-04-11T03:08:33.5515460Z Error: /cooku-with-comali-2026-tamil-web-series/: Failed to parse URL from /cooku-with-comali-2026-tamil-web-series/
+2026-04-11T03:08:33.7475870Z Scraping: /kaalidas-2-2026-tamil-movie/...
+2026-04-11T03:08:33.7477145Z Retry 1/3 for /kaalidas-2-2026-tamil-movie/: Failed to parse URL from /kaalidas-2-2026-tamil-movie/
+2026-04-11T03:08:35.7484382Z Retry 2/3 for /kaalidas-2-2026-tamil-movie/: Failed to parse URL from /kaalidas-2-2026-tamil-movie/
+2026-04-11T03:08:37.7508968Z Error: /kaalidas-2-2026-tamil-movie/: Failed to parse URL from /kaalidas-2-2026-tamil-movie/
+2026-04-11T03:08:37.9511264Z Scraping: /leader-2026-tamil-movie/...
+2026-04-11T03:08:37.9512559Z Retry 1/3 for /leader-2026-tamil-movie/: Failed to parse URL from /leader-2026-tamil-movie/
+2026-04-11T03:08:39.9532413Z Retry 2/3 for /leader-2026-tamil-movie/: Failed to parse URL from /leader-2026-tamil-movie/
+2026-04-11T03:08:41.9538860Z Error: /leader-2026-tamil-movie/: Failed to parse URL from /leader-2026-tamil-movie/
+2026-04-11T03:08:42.1557878Z Scraping: /maamla-legal-hai-2026-tamil-web-series/...
+2026-04-11T03:08:42.1559230Z Retry 1/3 for /maamla-legal-hai-2026-tamil-web-series/: Failed to parse URL from /maamla-legal-hai-2026-tamil-web-series/
+2026-04-11T03:08:44.1579533Z Retry 2/3 for /maamla-legal-hai-2026-tamil-web-series/: Failed to parse URL from /maamla-legal-hai-2026-tamil-web-series/
+2026-04-11T03:08:46.1604965Z Error: /maamla-legal-hai-2026-tamil-web-series/: Failed to parse URL from /maamla-legal-hai-2026-tamil-web-series/
+2026-04-11T03:08:46.3683605Z Scraping: /lbw-love-beyond-wicket-2025-tamil-web-series/...
+2026-04-11T03:08:46.3684897Z Retry 1/3 for /lbw-love-beyond-wicket-2025-tamil-web-series/: Failed to parse URL from /lbw-love-beyond-wicket-2025-tamil-web-series/
+2026-04-11T03:08:48.3702671Z Retry 2/3 for /lbw-love-beyond-wicket-2025-tamil-web-series/: Failed to parse URL from /lbw-love-beyond-wicket-2025-tamil-web-series/
+2026-04-11T03:08:50.3710280Z Error: /lbw-love-beyond-wicket-2025-tamil-web-series/: Failed to parse URL from /lbw-love-beyond-wicket-2025-tamil-web-series/
+2026-04-11T03:08:50.5692822Z Scraping: /konja-naal-poru-thalaiva-2025-tamil-movie/...
+2026-04-11T03:08:50.5694958Z Retry 1/3 for /konja-naal-poru-thalaiva-2025-tamil-movie/: Failed to parse URL from /konja-naal-poru-thalaiva-2025-tamil-movie/
+2026-04-11T03:08:52.5710720Z Retry 2/3 for /konja-naal-poru-thalaiva-2025-tamil-movie/: Failed to parse URL from /konja-naal-poru-thalaiva-2025-tamil-movie/
+2026-04-11T03:08:54.5735894Z Error: /konja-naal-poru-thalaiva-2025-tamil-movie/: Failed to parse URL from /konja-naal-poru-thalaiva-2025-tamil-movie/
+2026-04-11T03:08:54.7876618Z Scraping: /police-police-2025-tamil-movie/...
+2026-04-11T03:08:54.7877998Z Retry 1/3 for /police-police-2025-tamil-movie/: Failed to parse URL from /police-police-2025-tamil-movie/
+2026-04-11T03:08:56.7897352Z Retry 2/3 for /police-police-2025-tamil-movie/: Failed to parse URL from /police-police-2025-tamil-movie/
+2026-04-11T03:08:58.7903848Z Error: /police-police-2025-tamil-movie/: Failed to parse URL from /police-police-2025-tamil-movie/
+2026-04-11T03:08:58.9943188Z Scraping: /dhoolpet-police-station-2025-tamil-web-series/...
+2026-04-11T03:08:58.9945330Z Retry 1/3 for /dhoolpet-police-station-2025-tamil-web-series/: Failed to parse URL from /dhoolpet-police-station-2025-tamil-web-series/
+2026-04-11T03:09:00.9963553Z Retry 2/3 for /dhoolpet-police-station-2025-tamil-web-series/: Failed to parse URL from /dhoolpet-police-station-2025-tamil-web-series/
+2026-04-11T03:09:02.9989550Z Error: /dhoolpet-police-station-2025-tamil-web-series/: Failed to parse URL from /dhoolpet-police-station-2025-tamil-web-series/
+2026-04-11T03:09:03.2004213Z Scraping: /kombuseevi-2025-tamil-movie/...
+2026-04-11T03:09:03.2005677Z Retry 1/3 for /kombuseevi-2025-tamil-movie/: Failed to parse URL from /kombuseevi-2025-tamil-movie/
+2026-04-11T03:09:05.2020681Z Retry 2/3 for /kombuseevi-2025-tamil-movie/: Failed to parse URL from /kombuseevi-2025-tamil-movie/
+2026-04-11T03:09:07.2029027Z Error: /kombuseevi-2025-tamil-movie/: Failed to parse URL from /kombuseevi-2025-tamil-movie/
+2026-04-11T03:09:07.3985908Z Scraping: /ipl-indian-penal-law-2025-tamil-movie/...
+2026-04-11T03:09:07.3987454Z Retry 1/3 for /ipl-indian-penal-law-2025-tamil-movie/: Failed to parse URL from /ipl-indian-penal-law-2025-tamil-movie/
+2026-04-11T03:09:09.4009833Z Retry 2/3 for /ipl-indian-penal-law-2025-tamil-movie/: Failed to parse URL from /ipl-indian-penal-law-2025-tamil-movie/
+2026-04-11T03:09:11.4035089Z Error: /ipl-indian-penal-law-2025-tamil-movie/: Failed to parse URL from /ipl-indian-penal-law-2025-tamil-movie/
+2026-04-11T03:09:11.6464855Z Scraping: /tere-ishk-mein-2025-tamil-movie/...
+2026-04-11T03:09:11.6466834Z Retry 1/3 for /tere-ishk-mein-2025-tamil-movie/: Failed to parse URL from /tere-ishk-mein-2025-tamil-movie/
+2026-04-11T03:09:13.6484423Z Retry 2/3 for /tere-ishk-mein-2025-tamil-movie/: Failed to parse URL from /tere-ishk-mein-2025-tamil-movie/
+2026-04-11T03:09:15.6491148Z Error: /tere-ishk-mein-2025-tamil-movie/: Failed to parse URL from /tere-ishk-mein-2025-tamil-movie/
+2026-04-11T03:09:15.8455808Z Scraping: /mark-2025-tamil-movie/...
+2026-04-11T03:09:15.8456894Z Retry 1/3 for /mark-2025-tamil-movie/: Failed to parse URL from /mark-2025-tamil-movie/
+2026-04-11T03:09:17.8477567Z Retry 2/3 for /mark-2025-tamil-movie/: Failed to parse URL from /mark-2025-tamil-movie/
+2026-04-11T03:09:19.8502744Z Error: /mark-2025-tamil-movie/: Failed to parse URL from /mark-2025-tamil-movie/
+2026-04-11T03:09:20.0704861Z Scraping: /sirai-2025-tamil-movie/...
+2026-04-11T03:09:20.0705913Z Retry 1/3 for /sirai-2025-tamil-movie/: Failed to parse URL from /sirai-2025-tamil-movie/
+2026-04-11T03:09:22.0716147Z Retry 2/3 for /sirai-2025-tamil-movie/: Failed to parse URL from /sirai-2025-tamil-movie/
+2026-04-11T03:09:24.0733594Z Error: /sirai-2025-tamil-movie/: Failed to parse URL from /sirai-2025-tamil-movie/
+2026-04-11T03:09:24.2795681Z Scraping: /retta-thala-2025-tamil-movie/...
+2026-04-11T03:09:24.2797161Z Retry 1/3 for /retta-thala-2025-tamil-movie/: Failed to parse URL from /retta-thala-2025-tamil-movie/
+2026-04-11T03:09:26.2817665Z Retry 2/3 for /retta-thala-2025-tamil-movie/: Failed to parse URL from /retta-thala-2025-tamil-movie/
+2026-04-11T03:09:28.2842864Z Error: /retta-thala-2025-tamil-movie/: Failed to parse URL from /retta-thala-2025-tamil-movie/
+2026-04-11T03:09:28.4900603Z Scraping: /rippan-swamy-2025-tamil-movie/...
+2026-04-11T03:09:28.4902332Z Retry 1/3 for /rippan-swamy-2025-tamil-movie/: Failed to parse URL from /rippan-swamy-2025-tamil-movie/
+2026-04-11T03:09:30.4921428Z Retry 2/3 for /rippan-swamy-2025-tamil-movie/: Failed to parse URL from /rippan-swamy-2025-tamil-movie/
+2026-04-11T03:09:32.4929933Z Error: /rippan-swamy-2025-tamil-movie/: Failed to parse URL from /rippan-swamy-2025-tamil-movie/
+2026-04-11T03:09:33.0314124Z Scraping: /bha-bha-ba-2025-tamil-movie/...
+2026-04-11T03:09:33.0315431Z Retry 1/3 for /bha-bha-ba-2025-tamil-movie/: Failed to parse URL from /bha-bha-ba-2025-tamil-movie/
+2026-04-11T03:09:35.0335870Z Retry 2/3 for /bha-bha-ba-2025-tamil-movie/: Failed to parse URL from /bha-bha-ba-2025-tamil-movie/
+2026-04-11T03:09:37.0360908Z Error: /bha-bha-ba-2025-tamil-movie/: Failed to parse URL from /bha-bha-ba-2025-tamil-movie/
+2026-04-11T03:09:37.1711471Z Scraping: /bank-of-bhagyalakshmi-2025-tamil-movie/...
+2026-04-11T03:09:37.1713218Z Retry 1/3 for /bank-of-bhagyalakshmi-2025-tamil-movie/: Failed to parse URL from /bank-of-bhagyalakshmi-2025-tamil-movie/
+2026-04-11T03:09:39.1731853Z Retry 2/3 for /bank-of-bhagyalakshmi-2025-tamil-movie/: Failed to parse URL from /bank-of-bhagyalakshmi-2025-tamil-movie/
+2026-04-11T03:09:41.1737181Z Error: /bank-of-bhagyalakshmi-2025-tamil-movie/: Failed to parse URL from /bank-of-bhagyalakshmi-2025-tamil-movie/
+2026-04-11T03:09:41.3947036Z Scraping: /dhandoraa-2025-tamil-movie/...
+2026-04-11T03:09:41.3947954Z Retry 1/3 for /dhandoraa-2025-tamil-movie/: Failed to parse URL from /dhandoraa-2025-tamil-movie/
+2026-04-11T03:09:43.3959448Z Retry 2/3 for /dhandoraa-2025-tamil-movie/: Failed to parse URL from /dhandoraa-2025-tamil-movie/
+2026-04-11T03:09:45.3983860Z Error: /dhandoraa-2025-tamil-movie/: Failed to parse URL from /dhandoraa-2025-tamil-movie/
+2026-04-11T03:09:45.6053914Z Scraping: /simple-manusan-2025-tamil-movie/...
+2026-04-11T03:09:45.6055032Z Retry 1/3 for /simple-manusan-2025-tamil-movie/: Failed to parse URL from /simple-manusan-2025-tamil-movie/
+2026-04-11T03:09:47.6072939Z Retry 2/3 for /simple-manusan-2025-tamil-movie/: Failed to parse URL from /simple-manusan-2025-tamil-movie/
+2026-04-11T03:09:49.6080150Z Error: /simple-manusan-2025-tamil-movie/: Failed to parse URL from /simple-manusan-2025-tamil-movie/
+2026-04-11T03:09:49.8177850Z Scraping: /mowgli-2025-tamil-movie/...
+2026-04-11T03:09:49.8182054Z Retry 1/3 for /mowgli-2025-tamil-movie/: Failed to parse URL from /mowgli-2025-tamil-movie/
+2026-04-11T03:09:51.8193067Z Retry 2/3 for /mowgli-2025-tamil-movie/: Failed to parse URL from /mowgli-2025-tamil-movie/
+2026-04-11T03:09:53.8217046Z Error: /mowgli-2025-tamil-movie/: Failed to parse URL from /mowgli-2025-tamil-movie/
+2026-04-11T03:09:54.0314554Z Scraping: /mask-2025-tamil-movie/...
+2026-04-11T03:09:54.0315737Z Retry 1/3 for /mask-2025-tamil-movie/: Failed to parse URL from /mask-2025-tamil-movie/
+2026-04-11T03:09:56.0333338Z Retry 2/3 for /mask-2025-tamil-movie/: Failed to parse URL from /mask-2025-tamil-movie/
+2026-04-11T03:09:58.0339464Z Error: /mask-2025-tamil-movie/: Failed to parse URL from /mask-2025-tamil-movie/
+2026-04-11T03:09:58.2399809Z Scraping: /akhanda-2-2025-tamil-movie/...
+2026-04-11T03:09:58.2400805Z Retry 1/3 for /akhanda-2-2025-tamil-movie/: Failed to parse URL from /akhanda-2-2025-tamil-movie/
+2026-04-11T03:10:00.2423988Z Retry 2/3 for /akhanda-2-2025-tamil-movie/: Failed to parse URL from /akhanda-2-2025-tamil-movie/
+2026-04-11T03:10:02.2447904Z Error: /akhanda-2-2025-tamil-movie/: Failed to parse URL from /akhanda-2-2025-tamil-movie/
+2026-04-11T03:10:02.4442234Z Scraping: /rajakili-2024-tamil-movie/...
+2026-04-11T03:10:02.4443179Z Retry 1/3 for /rajakili-2024-tamil-movie/: Failed to parse URL from /rajakili-2024-tamil-movie/
+2026-04-11T03:10:04.4461664Z Retry 2/3 for /rajakili-2024-tamil-movie/: Failed to parse URL from /rajakili-2024-tamil-movie/
+2026-04-11T03:10:06.4468947Z Error: /rajakili-2024-tamil-movie/: Failed to parse URL from /rajakili-2024-tamil-movie/
+2026-04-11T03:10:06.6596622Z Scraping: /veerayi-makkal-2024-tamil-movie/...
+2026-04-11T03:10:06.6598116Z Retry 1/3 for /veerayi-makkal-2024-tamil-movie/: Failed to parse URL from /veerayi-makkal-2024-tamil-movie/
+2026-04-11T03:10:08.6609351Z Retry 2/3 for /veerayi-makkal-2024-tamil-movie/: Failed to parse URL from /veerayi-makkal-2024-tamil-movie/
+2026-04-11T03:10:10.6621148Z Error: /veerayi-makkal-2024-tamil-movie/: Failed to parse URL from /veerayi-makkal-2024-tamil-movie/
+2026-04-11T03:10:10.9069531Z Scraping: /bhairathi-ranagal-2024-tamil-movie/...
+2026-04-11T03:10:10.9070693Z Retry 1/3 for /bhairathi-ranagal-2024-tamil-movie/: Failed to parse URL from /bhairathi-ranagal-2024-tamil-movie/
+2026-04-11T03:10:12.9088125Z Retry 2/3 for /bhairathi-ranagal-2024-tamil-movie/: Failed to parse URL from /bhairathi-ranagal-2024-tamil-movie/
+2026-04-11T03:10:14.9105208Z Error: /bhairathi-ranagal-2024-tamil-movie/: Failed to parse URL from /bhairathi-ranagal-2024-tamil-movie/
+2026-04-11T03:10:15.1236784Z Scraping: /parari-2024-tamil-movie/...
+2026-04-11T03:10:15.1237687Z Retry 1/3 for /parari-2024-tamil-movie/: Failed to parse URL from /parari-2024-tamil-movie/
+2026-04-11T03:10:17.1248481Z Retry 2/3 for /parari-2024-tamil-movie/: Failed to parse URL from /parari-2024-tamil-movie/
+2026-04-11T03:10:19.1272247Z Error: /parari-2024-tamil-movie/: Failed to parse URL from /parari-2024-tamil-movie/
+2026-04-11T03:10:19.3378144Z Scraping: /emagadhagan-2024-tamil-movie/...
+2026-04-11T03:10:19.3379661Z Retry 1/3 for /emagadhagan-2024-tamil-movie/: Failed to parse URL from /emagadhagan-2024-tamil-movie/
+2026-04-11T03:10:21.3390038Z Retry 2/3 for /emagadhagan-2024-tamil-movie/: Failed to parse URL from /emagadhagan-2024-tamil-movie/
+2026-04-11T03:10:23.3405805Z Error: /emagadhagan-2024-tamil-movie/: Failed to parse URL from /emagadhagan-2024-tamil-movie/
+2026-04-11T03:10:23.5315169Z Scraping: /blood-and-black-2024-tamil-movie/...
+2026-04-11T03:10:23.5316519Z Retry 1/3 for /blood-and-black-2024-tamil-movie/: Failed to parse URL from /blood-and-black-2024-tamil-movie/
+2026-04-11T03:10:25.5326064Z Retry 2/3 for /blood-and-black-2024-tamil-movie/: Failed to parse URL from /blood-and-black-2024-tamil-movie/
+2026-04-11T03:10:27.5349650Z Error: /blood-and-black-2024-tamil-movie/: Failed to parse URL from /blood-and-black-2024-tamil-movie/
+2026-04-11T03:10:27.7353685Z Scraping: /max-2024-tamil-movie/...
+2026-04-11T03:10:27.7354748Z Retry 1/3 for /max-2024-tamil-movie/: Failed to parse URL from /max-2024-tamil-movie/
+2026-04-11T03:10:29.7373503Z Retry 2/3 for /max-2024-tamil-movie/: Failed to parse URL from /max-2024-tamil-movie/
+2026-04-11T03:10:31.7379755Z Error: /max-2024-tamil-movie/: Failed to parse URL from /max-2024-tamil-movie/
+2026-04-11T03:10:31.9297984Z Scraping: /pushpa-2-the-rule-2024-tamil-movie/...
+2026-04-11T03:10:31.9299639Z Retry 1/3 for /pushpa-2-the-rule-2024-tamil-movie/: Failed to parse URL from /pushpa-2-the-rule-2024-tamil-movie/
+2026-04-11T03:10:33.9311587Z Retry 2/3 for /pushpa-2-the-rule-2024-tamil-movie/: Failed to parse URL from /pushpa-2-the-rule-2024-tamil-movie/
+2026-04-11T03:10:35.9335031Z Error: /pushpa-2-the-rule-2024-tamil-movie/: Failed to parse URL from /pushpa-2-the-rule-2024-tamil-movie/
+2026-04-11T03:10:36.1463768Z Scraping: /razakar-2024-tamil-movie/...
+2026-04-11T03:10:36.1464822Z Retry 1/3 for /razakar-2024-tamil-movie/: Failed to parse URL from /razakar-2024-tamil-movie/
+2026-04-11T03:10:38.1482898Z Retry 2/3 for /razakar-2024-tamil-movie/: Failed to parse URL from /razakar-2024-tamil-movie/
+2026-04-11T03:10:40.1489107Z Error: /razakar-2024-tamil-movie/: Failed to parse URL from /razakar-2024-tamil-movie/
+2026-04-11T03:10:40.3632186Z Scraping: /thiru-manickam-2024-tamil-movie/...
+2026-04-11T03:10:40.3633819Z Retry 1/3 for /thiru-manickam-2024-tamil-movie/: Failed to parse URL from /thiru-manickam-2024-tamil-movie/
+2026-04-11T03:10:42.3654390Z Retry 2/3 for /thiru-manickam-2024-tamil-movie/: Failed to parse URL from /thiru-manickam-2024-tamil-movie/
+2026-04-11T03:10:44.3679227Z Error: /thiru-manickam-2024-tamil-movie/: Failed to parse URL from /thiru-manickam-2024-tamil-movie/
+2026-04-11T03:10:44.6065480Z Scraping: /tamil-2025-movies-tamil-movie/...
+2026-04-11T03:10:44.6066903Z Retry 1/3 for /tamil-2025-movies-tamil-movie/: Failed to parse URL from /tamil-2025-movies-tamil-movie/
+2026-04-11T03:10:46.6085426Z Retry 2/3 for /tamil-2025-movies-tamil-movie/: Failed to parse URL from /tamil-2025-movies-tamil-movie/
+2026-04-11T03:10:48.6091307Z Error: /tamil-2025-movies-tamil-movie/: Failed to parse URL from /tamil-2025-movies-tamil-movie/
+2026-04-11T03:10:48.8293455Z Scraping: /kumbaari-2024-tamil-movie/...
+2026-04-11T03:10:48.8294939Z Retry 1/3 for /kumbaari-2024-tamil-movie/: Failed to parse URL from /kumbaari-2024-tamil-movie/
+2026-04-11T03:10:50.8315897Z Retry 2/3 for /kumbaari-2024-tamil-movie/: Failed to parse URL from /kumbaari-2024-tamil-movie/
+2026-04-11T03:10:52.8332152Z Error: /kumbaari-2024-tamil-movie/: Failed to parse URL from /kumbaari-2024-tamil-movie/
+2026-04-11T03:10:53.0445794Z Detail Scraper finished. Processed 0 movies.
+2026-04-11T03:10:53.0588921Z Post job cleanup.
+2026-04-11T03:10:53.2112638Z Cache hit occurred on the primary key node-cache-Linux-x64-npm-a91271e1f146469f87eac4b5a77cea09bac2104a70e1943a2f85f9a6be772638, not saving cache.
+2026-04-11T03:10:53.2257205Z Post job cleanup.
+2026-04-11T03:10:53.3202644Z [command]/usr/bin/git version
+2026-04-11T03:10:53.3238658Z git version 2.53.0
+2026-04-11T03:10:53.3282521Z Temporarily overriding HOME='/home/runner/work/_temp/cf4300c8-4113-4e08-b903-9c2adddbd550' before making global git config changes
+2026-04-11T03:10:53.3283503Z Adding repository directory to the temporary git global config as a safe directory
+2026-04-11T03:10:53.3288155Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/KStream-Scrapper/KStream-Scrapper
+2026-04-11T03:10:53.3324070Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-04-11T03:10:53.3357334Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-04-11T03:10:53.3587866Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-04-11T03:10:53.3609197Z http.https://github.com/.extraheader
+2026-04-11T03:10:53.3621615Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-04-11T03:10:53.3652077Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-04-11T03:10:53.3875448Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-04-11T03:10:53.3906269Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-04-11T03:10:53.4257851Z Cleaning up orphan processes
+2026-04-11T03:10:53.4560618Z ##[warning]Node.js 20 actions are deprecated. The following actions are running on Node.js 20 and may not work as expected: actions/checkout@v4, actions/setup-node@v4. Actions will be forced to run with Node.js 24 by default starting June 2nd, 2026. Node.js 20 will be removed from the runner on September 16th, 2026. Please check if updated versions of these actions are available that support Node.js 24. To opt into Node.js 24 now, set the FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true environment variable on the runner or in your workflow file. Once Node.js 24 becomes the default, you can temporarily opt out by setting ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
