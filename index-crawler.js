@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import { getSourceUrl, checkRateLimit, startRefresh, finishRefresh, getFolderState, updateFolderState } from './lib/supabase.js';
+import { supabase, getSourceUrl, checkRateLimit, startRefresh, finishRefresh, getFolderState, updateFolderState } from './lib/supabase.js';
 import { fetchHtml, delay } from './lib/fetch.js';
 
 const BATCH_SIZE = 50;
@@ -74,8 +74,15 @@ async function queueMovies(movies, folder, priority) {
     return movies.length;
 }
 
+async function cleanQueue() {
+    await supabase.from('scrape_queue').delete().neq('status', 'pending');
+    console.log('Cleaned old queue items');
+}
+
 async function crawlIndex() {
     console.log('Starting Index Crawler...');
+
+    await cleanQueue();
 
     const isRateLimited = await checkRateLimit(15);
     if (isRateLimited) {
@@ -126,13 +133,10 @@ async function crawlIndex() {
             }
         }
 
-        await finishRefresh('completed');
-        console.log('Index Crawler finished.');
+        console.log('Index Crawler finished. Ready for detail scraper.');
     } catch (err) {
         console.error('Crawler Error:', err.message);
-        await finishRefresh('failed');
     }
 }
 
-import { supabase } from './lib/supabase.js';
 crawlIndex();

@@ -1,6 +1,6 @@
 import * as cheerio from 'cheerio';
 import { fetchHtml, delay } from './lib/fetch.js';
-import { supabase } from './lib/supabase.js';
+import { supabase, getSourceUrl, startRefresh, finishRefresh } from './lib/supabase.js';
 
 const BATCH_SIZE = 50;
 const BATCH_DELAY_MS = 15000;
@@ -30,107 +30,121 @@ async function updateQueueStatus(id, status, errorMsg = null) {
         .eq('id', id);
 }
 
+async function cleanQueue() {
+    await supabase.from('scrape_queue').delete().neq('status', 'pending');
+    console.log('Cleaned old queue items');
+}
+
 function extractMovieDetails(html, url) {
     const $ = cheerio.load(html);
 
-    let title = $('li > strong:contains("Movie:") span').text().trim();
-    if (!title) title = $('title').text().trim().split('|')[0].trim();
+    let title = $('h1').first().text().trim();
+    if (!title) title = $('title').text().split('|')[0].trim();
+    title = title.replace(/ Tamil Full Movie Download.*$/i, '').trim();
 
     const yearMatch = title.match(/\((\d{4})\)/);
     const year = yearMatch ? parseInt(yearMatch[1]) : null;
 
-    const posterUrl = $('picture img').attr('src') || $('img[alt*="Poster"]').attr('src') || $('img').first().attr('src') || '';
+    const posterUrl = $('picture img').attr('src') || '';
+    const posterFullUrl = posterUrl.startsWith('http') ? posterUrl : `https://moviesda18.com${posterUrl}`;
 
-    const synopsis = $('.movie-synopsis span').last().text().trim() || 
-                   $('meta[name="description"]').attr('content') || '';
-
-    const durationMatch = html.match(/Duration:.*?(\d{2}:\d{2}:\d{2})/);
-    const duration = durationMatch ? durationMatch[1] : '';
-
-    const genreText = $('li > strong:contains("Genres:") span').text().trim();
-    const genres = genreText ? genreText.split(',').map(g => g.trim()).filter(g => g) : [];
+    const synopsis = $('.movie-synopsis span').last().text().trim() || '';
 
     const directorText = $('li > strong:contains("Director:") span').text().trim();
-    const director = directorText ? directorText.split(',').map(d => d.trim()).filter(d => d) : [];
+    const director = directorText ? [directorText] : [];
 
     const castText = $('li > strong:contains("Starring:") span').text().trim();
     const cast = castText ? castText.split(',').map(c => c.trim()).filter(c => c) : [];
 
+    const genreText = $('li > strong:contains("Genres:") span').text().trim();
+    const genres = genreText ? genreText.split(',').map(g => g.trim()).filter(g => g) : [];
+
     const ratingText = $('li > strong:contains("Movie Rating:") span').text().trim();
     const rating = ratingText ? ratingText.replace('/10', '').trim() : '';
+
+    const languageText = $('li > strong:contains("Language:") span').text().trim();
+
+    const typeText = $('li > strong:contains("Quality:") span').text().trim();
 
     return {
         movie_url: url,
         movie_name: title.replace(/\s*\(\d{4}\)/, '').trim(),
         year,
-        duration,
         synopsis,
         director: director.length > 0 ? director : null,
         cast_members: cast.length > 0 ? cast : null,
         genres: genres.length > 0 ? genres : null,
-        type: '',
-        language: 'Tamil',
+        type: typeText || '',
+        language: languageText || 'Tamil',
         rating,
-        poster_url: posterUrl
+        poster_url: posterFullUrl
     };
 }
 
-function extractQualityLinks(html, baseUrl) {
+async function findQualityLinks(html, baseUrl) {
     const $ = cheerio.load(html);
     const qualities = [];
 
-    $('a[href*="1080p"], a[href*="720p"], a[href*="original"], a[href*="hd-movie"], a[href*="hd-web"]').each((i, el) => {
+    $('a[href*="-movie/"]').each((i, el) => {
         const href = $(el).attr('href');
-        const text = $(el).text().toLowerCase();
+        const text = $(el).text().trim().toLowerCase();
 
-        let quality = '1080p';
-        if (text.includes('720p')) quality = '720p';
-        else if (text.includes('1080p') || text.includes('4k')) quality = '1080p';
-        else if (text.includes('original')) quality = 'Original';
-        else if (text.includes('480p')) quality = '480p';
-        else if (text.includes('360p')) quality = '360p';
+        if (href && !href.includes('../') && href.endsWith('/')) {
+            let quality = 'Unknown';
 
-        if (href) {
-            qualities.push({
-                quality,
-                url: new URL(href, baseUrl).toString()
-            });
+            if (text.includes('720p') || text.includes('hd')) quality = '720p';
+            else if (text.includes('1080p')) quality = '1080p';
+            else if (text.includes('360p')) quality = '360p';
+            else if (text.includes('original')) quality = 'Original';
+            else if (text.includes('hq') || text.includes('predvd')) quality = 'HQ PreDVD';
+            else if (text.includes('dvdrip') || text.includes('dvd')) quality = 'DVDRip';
+            else if (text.includes('webrip') || text.includes('web')) quality = 'WEBRip';
+
+            if (quality !== 'Unknown') {
+                qualities.push({
+                    quality,
+                    url: new URL(href, baseUrl).toString()
+                });
+            }
         }
     });
 
     return qualities;
 }
 
-async function scrapeQualityPage(qualityUrl) {
-    const html = await fetchHtml(qualityUrl);
-    const $ = cheerio.load(html);
+async function getDownloadLinks(qualityPageUrl) {
+    if (!qualityPageUrl) return { download_url_1: '', watch_url_1: '' };
 
-    const downloadUrls = [];
-    $('.download a').each((i, el) => {
-        const href = $(el).attr('href');
-        if (href && href.startsWith('http')) {
-            downloadUrls.push(href);
+    try {
+        const html = await fetchHtml(qualityPageUrl);
+        const $ = cheerio.load(html);
+
+        let downloadUrl = '';
+        let watchUrl = '';
+
+        $('a[href*="download"]').each((i, el) => {
+            const href = $(el).attr('href');
+            if (href && href.startsWith('http') && !downloadUrl) {
+                downloadUrl = href;
+            } else if (href && href.startsWith('http') && href.includes('stream') && !watchUrl) {
+                watchUrl = href;
+            }
+        });
+
+        if (!downloadUrl) {
+            $('a[href*="/download/"]').each((i, el) => {
+                const href = $(el).attr('href');
+                if (href) {
+                    const fullUrl = new URL(href, qualityPageUrl).toString();
+                    downloadUrl = fullUrl;
+                }
+            });
         }
-    });
 
-    const watchUrls = [];
-    $('a:contains("Watch Online")').each((i, el) => {
-        const href = $(el).attr('href');
-        if (href && href.startsWith('http')) {
-            watchUrls.push(href);
-        }
-    });
-
-    const durationMatch = html.match(/Duration:.*?(\d{2}:\d{2}:\d{2})/);
-    const duration = durationMatch ? durationMatch[1] : '';
-
-    return {
-        download_url_1: downloadUrls[0] || '',
-        download_url_2: downloadUrls[1] || '',
-        watch_url_1: watchUrls[0] || '',
-        watch_url_2: watchUrls[1] || '',
-        duration
-    };
+        return { download_url_1: downloadUrl, watch_url_1: watchUrl };
+    } catch (e) {
+        return { download_url_1: '', watch_url_1: '' };
+    }
 }
 
 async function scrapeMovieDetails(item) {
@@ -167,33 +181,24 @@ async function scrapeMovieDetails(item) {
         .delete()
         .eq('movie_id', movieId);
 
-    const qualities = extractQualityLinks(html, item.url);
+    const qualityLinks = await findQualityLinks(html, item.url);
 
-    if (qualities.length === 0) {
+    if (qualityLinks.length === 0) {
         await supabase.from('media').insert({
             movie_id: movieId,
             quality: 'Unknown',
             download_url_1: ''
         });
     } else {
-        for (const q of qualities) {
-            try {
-                const mediaDetails = await scrapeQualityPage(q.url);
-                await supabase.from('media').insert({
-                    movie_id: movieId,
-                    quality: q.quality,
-                    download_url_1: mediaDetails.download_url_1,
-                    download_url_2: mediaDetails.download_url_2,
-                    watch_url_1: mediaDetails.watch_url_1,
-                    watch_url_2: mediaDetails.watch_url_2
-                });
-            } catch (e) {
-                await supabase.from('media').insert({
-                    movie_id: movieId,
-                    quality: q.quality,
-                    download_url_1: q.url
-                });
-            }
+        for (const q of qualityLinks) {
+            const downloadLinks = await getDownloadLinks(q.url);
+            await supabase.from('media').insert({
+                movie_id: movieId,
+                quality: q.quality,
+                download_url_1: downloadLinks.download_url_1 || q.url,
+                watch_url_1: downloadLinks.watch_url_1
+            });
+            await delay(500);
         }
     }
 
@@ -204,11 +209,14 @@ async function scrapeDetails() {
     console.log('Starting Detail Scraper...');
 
     try {
+        await cleanQueue();
+
         const queueItems = await getQueueItems(BATCH_SIZE);
         console.log(`Processing ${queueItems.length} items from queue...`);
 
         if (queueItems.length === 0) {
             console.log('No pending items.');
+            await finishRefresh('completed');
             return;
         }
 
@@ -236,8 +244,10 @@ async function scrapeDetails() {
         }
 
         console.log(`Detail Scraper finished. Processed ${processed} movies.`);
+        await finishRefresh('completed');
     } catch (err) {
         console.error('Scraper Error:', err.message);
+        await finishRefresh('failed');
     }
 }
 
