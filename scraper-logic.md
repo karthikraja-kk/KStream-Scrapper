@@ -9,6 +9,236 @@ This scraper has two main components:
 
 ---
 
+## Flow Chart (Mermaid)
+
+```mermaid
+flowchart TD
+    Start([Start]) --> GetBase[Get Base URL from DB]
+    GetBase --> FetchHome[Fetch Home Page]
+    FetchHome --> FindFolders[Discover Year Folders<br/>tamil-2026-movies, tamil-2025-movies...]
+    
+    subgraph LoopFolders["For Each Year Folder"]
+        FetchFolder[Fetch Folder Page]
+        FindMovies[Find Movie URLs<br/>/-tamil-movie/, /-tamil-web-series/]
+        AddQueue[Add to scrape_queue<br/>status='pending']
+    end
+    
+    FindFolders --> LoopFolders
+    LoopFolders --> DoneIndex[Done]
+
+    subgraph DetailScraper["Detail Scraper"]
+        StartDetail[Start] --> GetQueue[Get Pending Items]
+        GetQueue --> ForEach{For Each<br/>Movie?}
+        
+        subgraph MoviePage["Movie Page Processing"]
+            FetchMovie[Fetch Movie Page]
+            ExtractDetails[Extract Details<br/>title, year, director, cast...]
+            FindQualityLinks[Find Quality Links<br/>or go to (Original) page]
+            CheckQuality{Quality Links<br/>Found?}
+        end
+        
+        FetchMovie --> ExtractDetails --> FindQualityLinks --> CheckQuality
+        
+        CheckQuality -->|Yes| ForQuality[For Each Quality Link]
+        CheckQuality -->|No| InsertUnknown[Insert Media<br/>quality='Unknown']
+        
+        subgraph QualityProcessing["Quality Processing"]
+            FetchQuality[Fetch Quality Page]
+            GetDownloadLink[Get Download Link]
+            FetchDownload[Fetch Download Page<br/>Get file_size, duration]
+            GetServerLinks[Get Server 1 & Server 2]
+        end
+        
+        ForQuality --> FetchQuality --> GetDownloadLink --> FetchDownload --> GetServerLinks
+        
+        subgraph Server1Chain["Server 1 Chain"]
+            FetchS1[Fetch Server 1 Page]
+            GetS1Redirect[Get Download Server 1<br/>Page URL]
+            FetchS1Final[Fetch Server 1 Final Page]
+            GetDL1[Get Download URL 1<br/>Final .mp4 URL]
+            GetW1Page[Get Watch Page URL]
+            FetchW1[Fetch Watch Page]
+            GetW1[Get Watch URL 1<br/>Stream URL]
+        end
+        
+        subgraph Server2Chain["Server 2 Chain"]
+            FetchS2[Fetch Server 2 Page]
+            GetS2Redirect[Get Download Server 2<br/>Page URL]
+            FetchS2Final[Fetch Server 2 Final Page]
+            GetDL2[Get Download URL 2<br/>Final .mp4 URL]
+            GetW2Page[Get Watch Page 2 URL]
+            FetchW2[Fetch Watch Page 2]
+            GetW2[Get Watch URL 2<br/>Stream URL]
+        end
+        
+        GetServerLinks --> Server1Chain
+        GetServerLinks --> Server2Chain
+        
+        subgraph Insert["Insert to Media Table"]
+            InsertMedia{movie_id,<br/>quality,<br/>file_size,<br/>duration,<br/>download_url_1,<br/>download_url_2,<br/>watch_url_1,<br/>watch_url_2}
+        end
+        
+        Server1Chain --> InsertMedia
+        Server2Chain --> InsertMedia
+        InsertUnknown --> InsertMedia
+        InsertMedia --> UpdateQueue[Update Queue Status<br/>status='done']
+        
+        ForEach -->|More| FetchMovie
+        ForEach -->|None| DoneDetail[Done]
+    end
+    
+    DoneIndex --> DetailScraper
+```
+
+---
+
+## ASCII Flow Chart
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     INDEX CRAWLER                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  1. Get Base URL from database                                │
+│  2. Fetch home page                                         │
+│  3. Find year folders (tamil-2026-movies, tamil-2025-movies)  │
+│                                                             │
+│  FOR EACH FOLDER:                                            │
+│    ├─ Fetch folder page                                      │
+│    ├─ Find movie URLs                                       │
+│    └─ Add to scrape_queue (status='pending')                 │
+│                                                             │
+│  DONE ──────────────────────────────────────────────────────► │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     DETAIL SCRAPER                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                             │
+│  FOR EACH PENDING MOVIE:                                       │
+│    │                                                         │
+│    ├─► Fetch movie page                                      │
+│    ├─► Extract details (title, year, director, cast, etc.)        │
+│    ├─► Find quality links:                                   │
+│    │     │                                                 │
+│    │     ├─ (if on movie page) ─────────────────────────►  │
+│    │     │                                                 │
+│    │     └─ (if NOT) ── Click "(Original)" ────► Fetch     │
+│    │           Original page ──► Find quality links         │
+│    │                                                      │
+│    └─► FOR EACH QUALITY (1080p, 720p, 360p):                │
+│          │                                                 │
+│          ├─► Fetch quality page                           │
+│          ├─► Get download link                           │
+│          ├─► Fetch download page                         │
+│          │      ├─ Extract file_size                      │
+│          │      ├─ Extract duration                     │
+│          │      ├─ Get Download Server 1 link           │
+│          │      └─ Get Download Server 2 link            │
+│          │                                              │
+│          ├─► SERVER 1 CHAIN:                             │
+│          │    ├─ Click "Download Server 1"               │
+│          │    ├─ Get "Download Server 1" link ─────►   │
+│          │    ├─ Click it ──────────────────────►       │
+│          │    ├─ Get final download URL (.mp4) ◄──────  │
+│          │    │                                         │
+│          │    ├─ Click "Watch Online Server 1"           │
+│          │    ├─ Fetch watch page                       │
+│          │    └─ Get stream URL (source src) ◄─────────  │
+│          │                                              │
+│          ├─► SERVER 2 CHAIN:                             │
+│          │    ├─ Click "Download Server 2"               │
+│          │    ├─ Get "Download Server 2" link ─────►  │
+│          │    ├─ Click it ──────────────────────►       │
+│          │    ├─ Get final download URL (.mp4) ◄────   │
+│          │    │                                         │
+│          │    ├─ Click "Watch Online Server 2"         │
+│          │    ├─ Fetch watch page 2                    │
+│          │    └─ Get stream URL 2 ◄─────────────────  │
+│          │                                              │
+│          └─► INSERT MEDIA:                             │
+│               ├─ movie_id                              │
+│               ├─ quality (1080p/720p/360p)              │
+│               ├─ file_size                            │
+│               ├─ duration                             │
+│               ├─ download_url_1                       │
+│               ├─ download_url_2                       │
+│               ├─ watch_url_1                          │
+│               └─ watch_url_2                          │
+│                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Detailed Flow - Complete URL Chain
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│                    FULL REDIRECT CHAIN                                    │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  [1] Movie Page                                                           │
+│       https://moviesda18.com/naangal-2025-tamil-movie/                     │
+│                         │                                                 │
+│                         └─ Click "Vadam (Original)"                       │
+│                               │                                         │
+│                               ▼                                         │
+│  [2] Original Page                                                      │
+│       https://moviesda18.com/naangal-original-movie/                      │
+│                         │                                                 │
+│                         ├─ Click "Vadam (1080p HD)" ──────────►          │
+│                         ├─ Click "Vadam (720p HD)" ──────────►          │
+│                         └─ Click "Vadam (360p HD)" ──────────►          │
+│                               │                                         │
+│                               ▼                                         │
+│  [3] Quality Page                                                       │
+│       https://moviesda18.com/naangal-1080p-hd-movie/                     │
+│                         │                                                 │
+│                         └─ Click movie file link                         │
+│                               │                                         │
+│                               ▼                                         │
+│  [4] Download Details Page                                              │
+│       https://moviesda18.com/download/naangal-2025-original-1080p-hd/    │
+│                         │                                                 │
+│         ┌───────────────┴───────────────┐                                 │
+│         │                           │                                 │
+│    Server 1                  Server 2                                │
+│    /download/file/97927      /download/file/97927                        │
+│         │                           │                                 │
+│         ▼                           ▼                                 │
+│  [5a] Server 1 Page          [5b] Server 2 Page                       │
+│  download.moviespage.xyz    download.moviespage.xyz                    │
+│         │                           │                                 │
+│         ├─► Server 1          ├─► Server 2                           │
+│         │  /download/page/     │  /download/page/                      │
+│         │                           │                                 │
+│         ▼                           ▼                                 │
+│  [6a] Server 1 Final Page  [6b] Server 2 Final Page                 │
+│  movies.downloadpage.xyz   movies.downloadpage.xyz                      │
+│  /download/page/97927    /download/page/97927                        │
+│         │                           │                                 │
+│    ┌────┴────┐              ┌────┴────┐                         │
+│    │         │              │         │                                 │
+│   DL Srv1  Watch       DL Srv2  Watch                             │
+│   Server 1  Online 1   Server 2  Online 2                           │
+│    .mp4       .mp4       .mp4       .mp4                            │
+│    │         │         │         │                                   │
+│    ▼         ▼         ▼         ▼                                   │
+│  download  watch    download  watch                                │
+│  URL 1      URL 1    URL 2      URL 2                                 │
+│                                                                           │
+│  FINAL URLs:                                                             │
+│  ├─ download_url_1: https://s33.cdnserver04.xyz/...mp4                   │
+│  ├─ download_url_2: https://s13.cdnserver02.xyz/...mp4                   │
+│  ├─ watch_url_1:    https://s13.cdnserver02.xyz/...mp4?stream=1         │
+│  └─ watch_url_2:    https://s35.cdnserver04.xyz/...mp4?stream=1         │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## Index Crawler Flow
 
 ```
