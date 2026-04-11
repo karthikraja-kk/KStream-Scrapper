@@ -45,31 +45,41 @@ function extractMovieDetails(html, url) {
     const yearMatch = title.match(/\((\d{4})\)/);
     const year = yearMatch ? parseInt(yearMatch[1]) : null;
 
-    const posterUrl = $('picture img').attr('src') || '';
+    const posterUrl = $('picture img').attr('src') || $('picture source').first().attr('srcset') || '';
     const posterFullUrl = posterUrl.startsWith('http') ? posterUrl : `https://moviesda18.com${posterUrl}`;
 
-    const synopsis = $('.movie-synopsis span').last().text().trim() || '';
+    let directorText = '';
+    let castText = '';
+    let genreText = '';
+    let ratingText = '';
+    let languageText = '';
+    let typeText = '';
+    let durationText = '';
 
-    const directorText = $('li > strong:contains("Director:") span').text().trim();
+    $('ul.movie-info li').each((i, el) => {
+        const strong = $(el).find('strong').text();
+        const span = $(el).find('span').text().trim();
+        if (strong.includes('Director')) directorText = span;
+        if (strong.includes('Starring')) castText = span;
+        if (strong.includes('Genres')) genreText = span;
+        if (strong.includes('Movie Rating')) ratingText = span;
+        if (strong.includes('Language')) languageText = span;
+        if (strong.includes('Quality')) typeText = span;
+        if (strong.includes('Run Time') || strong.includes('Duration')) durationText = span;
+    });
+
+    const synopsis = $('.movie-synopsis').text().replace(/Synopsis:/i, '').trim() || '';
+
     const director = directorText ? [directorText] : [];
-
-    const castText = $('li > strong:contains("Starring:") span').text().trim();
     const cast = castText ? castText.split(',').map(c => c.trim()).filter(c => c) : [];
-
-    const genreText = $('li > strong:contains("Genres:") span').text().trim();
     const genres = genreText ? genreText.split(',').map(g => g.trim()).filter(g => g) : [];
-
-    const ratingText = $('li > strong:contains("Movie Rating:") span').text().trim();
     const rating = ratingText ? ratingText.replace('/10', '').trim() : '';
-
-    const languageText = $('li > strong:contains("Language:") span').text().trim();
-
-    const typeText = $('li > strong:contains("Quality:") span').text().trim();
 
     return {
         movie_url: url,
-        movie_name: title.replace(/\s*\(\d{4}\)/, '').trim(),
+        movie_name: title.replace(/\s*\(\d{4}\)/, '').replace(/\s+Tamil\s*Movie.*$/i, '').trim(),
         year,
+        duration: durationText || null,
         synopsis,
         director: director.length > 0 ? director : null,
         cast_members: cast.length > 0 ? cast : null,
