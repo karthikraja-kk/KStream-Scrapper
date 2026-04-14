@@ -97,64 +97,52 @@ async function findQualityLinks(html, baseUrl) {
     const $ = cheerio.load(html);
     const qualities = [];
 
-    // First check for quality links directly on movie page
-    let qualityLinksOnPage = [];
+    // Get movie name from title - remove year, Tamil Movie, and numbers
+    let title = $('h1').first().text().trim();
+    let movieName = title.replace(/\s*\(\d{4}\)/, '').replace(/\s+Tamil\s*Movie.*$/i, '').trim().toLowerCase();
+    movieName = movieName.replace(/\d+/g, '').replace(/\s+/g, ' ').trim();
+
+    if (!movieName) return [];
+
+    // Find type page link containing movie name (e.g., "Bhairathi Ranagal (Original)" or "TN (HQ PreDVD)")
+    let typePageUrl = '';
     $('a[href*="-movie/"]').each((i, el) => {
         const href = $(el).attr('href');
         const text = $(el).text().trim().toLowerCase();
-        if (href && !href.includes('../') && href.endsWith('/') && !text.includes('(original)')) {
-            let quality = 'Unknown';
-            if (text.includes('1080p')) quality = '1080p';
-            else if (text.includes('720p')) quality = '720p';
-            else if (text.includes('480p')) quality = '480p';
-            else if (text.includes('360p')) quality = '360p';
-            else if (text.includes('hd')) quality = '720p';
-            if (quality !== 'Unknown') {
-                qualityLinksOnPage.push({ quality, url: new URL(href, baseUrl).toString() });
-            } else {
-                qualityLinksOnPage.push({ quality: 'Unknown', url: new URL(href, baseUrl).toString() });
-            }
+
+        // Match movie name but NOT quality indicators
+        if (text.includes(movieName) && !text.includes('1080p') && !text.includes('720p') && !text.includes('360p') && !text.includes('hd')) {
+            typePageUrl = new URL(href, baseUrl).toString();
+            return false;
         }
     });
 
-    // If no quality links on movie page, need to go to Original page first
-    if (qualityLinksOnPage.length === 0) {
-        let originalUrl = '';
-        $('a').each((i, el) => {
+    if (!typePageUrl) return [];
+
+    // Fetch type page to get quality links
+    try {
+        const typeHtml = await fetchHtml(typePageUrl);
+        const $type = cheerio.load(typeHtml);
+
+        $type('a[href*="-movie/"]').each((i, el) => {
             const href = $(el).attr('href');
-            const text = $(el).text().toLowerCase();
-            if (href && text.includes('(original)')) {
-                originalUrl = new URL(href, baseUrl).toString();
+            const text = $(el).text().trim().toLowerCase();
+
+            // Look for quality links
+            if (href && !href.includes('../') && href.endsWith('/')) {
+                let quality = 'Unknown';
+                if (text.includes('1080p')) quality = '1080p';
+                else if (text.includes('720p')) quality = '720p';
+                else if (text.includes('480p')) quality = '480p';
+                else if (text.includes('360p')) quality = '360p';
+                else if (text.includes('hd')) quality = '720p';
+                else return;
+
+                qualities.push({ quality, url: new URL(href, typePageUrl).toString() });
             }
         });
-
-        if (originalUrl) {
-            try {
-                const origHtml = await fetchHtml(originalUrl);
-                const $orig = cheerio.load(origHtml);
-
-                $orig('a[href*="-movie/"]').each((i, el) => {
-                    const href = $(el).attr('href');
-                    const text = $(el).text().trim().toLowerCase();
-                    if (href && !href.includes('../') && href.endsWith('/') && !text.includes('(original)')) {
-                        let quality = 'Unknown';
-                        if (text.includes('1080p')) quality = '1080p';
-                        else if (text.includes('720p')) quality = '720p';
-                        else if (text.includes('480p')) quality = '480p';
-                        else if (text.includes('360p')) quality = '360p';
-                        else if (text.includes('hd')) quality = '720p';
-                        qualities.push({
-                            quality,
-                            url: new URL(href, originalUrl).toString()
-                        });
-                    }
-                });
-            } catch (e) {
-                console.log('Error fetching Original page:', e.message);
-            }
-        }
-    } else {
-        qualities.push(...qualityLinksOnPage);
+    } catch (e) {
+        console.log('Error fetching type page:', e.message);
     }
 
     return qualities;
