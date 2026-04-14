@@ -134,6 +134,9 @@ function extractMovieDetails(html, url) {
 async function findQualityLinks(html, baseUrl) {
     const $ = cheerio.load(html);
     const qualities = [];
+    const pageTitle = $('title').text();
+    const h1Text = $('h1').first().text();
+    console.log(`  findQualityLinks: title="${h1Text.substring(0, 50)}", pageTitle="${pageTitle.substring(0, 50)}"`);
 
     let typePageUrl = '';
     $('div.f').each((i, el) => {
@@ -143,10 +146,15 @@ async function findQualityLinks(html, baseUrl) {
             const href = link.attr('href');
             if (href) {
                 typePageUrl = new URL(href, baseUrl).toString();
+                console.log(`  Found typePageUrl via folder: ${typePageUrl}`);
                 return false;
             }
         }
     });
+
+    const folderDivs = $('div.f').length;
+    const linksWithMovie = $('a[href*="-movie/"]').length;
+    console.log(`  div.f count: ${folderDivs}, a[href*="-movie/"] count: ${linksWithMovie}`);
 
     if (!typePageUrl) {
         let title = $('h1').first().text().trim();
