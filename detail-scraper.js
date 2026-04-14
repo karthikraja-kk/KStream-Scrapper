@@ -117,6 +117,30 @@ async function findQualityLinks(html, baseUrl) {
         }
     });
 
+    // If no type page link found, try constructing URL from movie name
+    if (!typePageUrl) {
+        const slug = movieName.replace(/\s+/g, '-');
+        const baseUrl = new URL(baseUrl).origin;
+        const possibleUrls = [
+            `${baseUrl}/${slug}-original-movie/`,
+            `${baseUrl}/${slug}-hq-predvd-movie/`,
+            `${baseUrl}/${slug}-720p-hd-movie/`,
+            `${baseUrl}/${slug}-1080p-hd-movie/`
+        ];
+        
+        for (const url of possibleUrls) {
+            try {
+                const checkHtml = await fetchHtml(url);
+                const $check = cheerio.load(checkHtml);
+                const pageTitle = $check('title').text().toLowerCase();
+                if (pageTitle.includes('movie') || pageTitle.includes('download')) {
+                    typePageUrl = url;
+                    break;
+                }
+            } catch (e) {}
+        }
+    }
+
     if (!typePageUrl) return [];
 
     // Fetch type page to get quality links
@@ -141,6 +165,20 @@ async function findQualityLinks(html, baseUrl) {
                 qualities.push({ quality, url: new URL(href, typePageUrl).toString() });
             }
         });
+
+        // If no quality links found on type page, check if type page itself is a quality page
+        if (qualities.length === 0) {
+            const pageTitle = $type('title').text().toLowerCase();
+            if (pageTitle.includes('1080p')) {
+                qualities.push({ quality: '1080p', url: typePageUrl });
+            } else if (pageTitle.includes('720p')) {
+                qualities.push({ quality: '720p', url: typePageUrl });
+            } else if (pageTitle.includes('360p')) {
+                qualities.push({ quality: '360p', url: typePageUrl });
+            } else if (pageTitle.includes('hd')) {
+                qualities.push({ quality: '720p', url: typePageUrl });
+            }
+        }
     } catch (e) {
         console.log('Error fetching type page:', e.message);
     }
