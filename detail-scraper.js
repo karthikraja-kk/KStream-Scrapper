@@ -416,8 +416,10 @@ async function getDownloadLinks(qualityPageUrl) {
 }
 
 async function scrapeMovieDetails(item) {
+    console.log(`Scraping: ${item.url}`);
     const html = await fetchHtml(item.url);
     const movieDetails = extractMovieDetails(html, item.url);
+    console.log(`  Extracted: name=${movieDetails.movie_name}, year=${movieDetails.year}, duration=${movieDetails.duration}, type=${movieDetails.type}`);
 
     const { data: existingMovie } = await supabase
         .from('movies')
