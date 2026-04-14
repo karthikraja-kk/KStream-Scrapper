@@ -164,32 +164,76 @@ async function findQualityLinks(html, baseUrl) {
         const typeHtml = await fetchHtml(typePageUrl);
         const $type = cheerio.load(typeHtml);
 
-        // Look for quality links - check both -movie/ and -moviesda/ patterns
-        $type('a[href*="-movie/"], a[href*="-moviesda/"]').each((i, el) => {
-            const href = $(el).attr('href');
-            const text = $(el).text().trim().toLowerCase();
-
-            if (href && !href.includes('../') && href.endsWith('/')) {
-                let quality = 'Unknown';
-                if (text.includes('1080p')) quality = '1080p';
-                else if (text.includes('720p')) quality = '720p';
-                else if (text.includes('480p')) quality = '480p';
-                else if (text.includes('360p')) quality = '360p';
-                else if (text.includes('hd')) quality = '720p';
-                else return;
-
-                qualities.push({ quality, url: new URL(href, typePageUrl).toString() });
+        // First try finding quality links using folder icons
+        $type('div.f').each((i, el) => {
+            const img = $(el).find('img[src*="folder"]');
+            if (img.length > 0) {
+                const link = $(el).find('a').first();
+                const href = link.attr('href');
+                const text = link.text().trim().toLowerCase();
+                
+                if (href) {
+                    // Extract quality from text (e.g., "480x320", "640x360", "720p HD", "1080p HD")
+                    let quality = 'Unknown';
+                    
+                    // Check for resolution format (e.g., 480x320, 640x360)
+                    const resMatch = text.match(/(\d+)x(\d+)/);
+                    if (resMatch) {
+                        const height = parseInt(resMatch[2]);
+                        if (height >= 1080) quality = '1080p';
+                        else if (height >= 720) quality = '720p';
+                        else if (height >= 480) quality = '480p';
+                        else if (height >= 360) quality = '360p';
+                        else quality = '360p';
+                    }
+                    // Check for p format (e.g., 720p, 1080p)
+                    else if (text.includes('1080p')) quality = '1080p';
+                    else if (text.includes('720p')) quality = '720p';
+                    else if (text.includes('480p')) quality = '480p';
+                    else if (text.includes('360p')) quality = '360p';
+                    else if (text.includes('hd')) quality = '720p';
+                    
+                    qualities.push({ quality, url: new URL(href, typePageUrl).toString() });
+                }
             }
         });
 
-        // If no quality links, check page title for quality
+        // Fallback: also check -movie/ and -moviesda/ patterns
+        if (qualities.length === 0) {
+            $type('a[href*="-movie/"], a[href*="-moviesda/"]').each((i, el) => {
+                const href = $(el).attr('href');
+                const text = $(el).text().trim().toLowerCase();
+
+                if (href && !href.includes('../') && href.endsWith('/')) {
+                    let quality = 'Unknown';
+                    const resMatch = text.match(/(\d+)x(\d+)/);
+                    if (resMatch) {
+                        const height = parseInt(resMatch[2]);
+                        if (height >= 1080) quality = '1080p';
+                        else if (height >= 720) quality = '720p';
+                        else if (height >= 480) quality = '480p';
+                        else if (height >= 360) quality = '360p';
+                        else quality = '360p';
+                    } else if (text.includes('1080p')) quality = '1080p';
+                    else if (text.includes('720p')) quality = '720p';
+                    else if (text.includes('480p')) quality = '480p';
+                    else if (text.includes('360p')) quality = '360p';
+                    else if (text.includes('hd')) quality = '720p';
+                    else return;
+
+                    qualities.push({ quality, url: new URL(href, typePageUrl).toString() });
+                }
+            });
+        }
+
+        // Fallback: check page title for quality
         if (qualities.length === 0) {
             const pageTitle = $type('title').text().toLowerCase();
             if (pageTitle.includes('1080p')) {
                 qualities.push({ quality: '1080p', url: typePageUrl });
             } else if (pageTitle.includes('720p')) {
                 qualities.push({ quality: '720p', url: typePageUrl });
-            } else if (pageTitle.includes('360p')) {
+            } else if (pageTitle.includes('360p') || pageTitle.includes('640')) {
                 qualities.push({ quality: '360p', url: typePageUrl });
             } else if (pageTitle.includes('hd')) {
                 qualities.push({ quality: '720p', url: typePageUrl });
