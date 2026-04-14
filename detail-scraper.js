@@ -1,10 +1,23 @@
 import * as cheerio from 'cheerio';
+import pLimit from 'p-limit';
 import { fetchHtml, delay } from './lib/fetch.js';
 import { supabase, getSourceUrl, startRefresh, finishRefresh } from './lib/supabase.js';
 
-const BATCH_SIZE = 50;
-const BATCH_DELAY_MS = 15000;
-const MOVIE_DELAY_MS = 1500;
+const BATCH_SIZE = 15;
+const BATCH_DELAY_MS = 10000;
+const MOVIE_DELAY_MS = 500;
+const CONCURRENT_LIMIT = 3;
+
+const limit = pLimit(CONCURRENT_LIMIT);
+
+function getMemoryUsage() {
+    const used = process.memoryUsage();
+    return {
+        heapUsed: Math.round(used.heapUsed / 1024 / 1024) + 'MB',
+        heapTotal: Math.round(used.heapTotal / 1024 / 1024) + 'MB',
+        rss: Math.round(used.rss / 1024 / 1024) + 'MB'
+    };
+}
 
 async function getQueueItems(limit = 50) {
     const { data, error } = await supabase
@@ -545,6 +558,7 @@ async function scrapeMovieDetails(item) {
 
 async function scrapeDetails() {
     console.log('Starting Detail Scraper...');
+    console.log(`Config: Batch=${BATCH_SIZE}, Concurrent=${CONCURRENT_LIMIT}, Delay=${MOVIE_DELAY_MS}ms`);
 
     try {
         await cleanQueue();
@@ -560,33 +574,49 @@ async function scrapeDetails() {
             }
 
             batchNum++;
-            console.log(`Batch ${batchNum}: Processing ${queueItems.length} items...`);
+            console.log(`\n=== Batch ${batchNum}: Processing ${queueItems.length} items ===`);
+            console.log(`Memory: ${JSON.stringify(getMemoryUsage())}`);
 
-            for (const item of queueItems) {
-                try {
-                    console.log(`Scraping: ${item.url}...`);
-                    const title = await scrapeMovieDetails(item);
-                    console.log(`Done: ${title}`);
+            // Process movies in parallel with concurrency limit
+            const results = await Promise.all(
+                queueItems.map(item => 
+                    limit(async () => {
+                        try {
+                            console.log(`Scraping: ${item.url}...`);
+                            const title = await scrapeMovieDetails(item);
+                            console.log(`Done: ${title}`);
+                            await updateQueueStatus(item.id, 'done');
+                            return { success: true, title };
+                        } catch (err) {
+                            console.error(`Error: ${item.url}: ${err.message}`);
+                            await updateQueueStatus(item.id, 'error', err.message);
+                            return { success: false, error: err.message };
+                        }
+                    })
+                )
+            );
 
-                    await updateQueueStatus(item.id, 'done');
-                    totalProcessed++;
-                    await delay(MOVIE_DELAY_MS);
-                } catch (err) {
-                    console.error(`Error: ${item.url}: ${err.message}`);
-                    await updateQueueStatus(item.id, 'error', err.message);
-                }
+            // Count successful processing
+            const successCount = results.filter(r => r.success).length;
+            totalProcessed += successCount;
+            console.log(`Batch ${batchNum} done: ${successCount}/${queueItems.length} successful`);
+
+            // Memory cleanup between batches
+            if (global.gc) {
+                global.gc();
             }
+            console.log(`Memory after cleanup: ${JSON.stringify(getMemoryUsage())}`);
 
             if (queueItems.length < BATCH_SIZE) {
                 console.log('All items processed.');
                 break;
             }
 
-            console.log(`Batch ${batchNum} complete, pausing ${BATCH_DELAY_MS / 1000}s...`);
+            console.log(`Pausing ${BATCH_DELAY_MS / 1000}s before next batch...`);
             await delay(BATCH_DELAY_MS);
         }
 
-        console.log(`Detail Scraper finished. Processed ${totalProcessed} movies total.`);
+        console.log(`\n✓ Detail Scraper finished. Processed ${totalProcessed} movies total.`);
         await finishRefresh('completed');
     } catch (err) {
         console.error('Scraper Error:', err.message);

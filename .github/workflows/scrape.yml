@@ -37,7 +37,7 @@ jobs:
           TRIGGER_BY: ${{ github.event.inputs.trigger || 'scheduler' }}
 
       - name: Run Scrape
-        run: node detail-scraper.js
+        run: node --max-old-space-size=2048 detail-scraper.js
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
