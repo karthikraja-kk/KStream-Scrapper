@@ -97,47 +97,63 @@ async function findQualityLinks(html, baseUrl) {
     const $ = cheerio.load(html);
     const qualities = [];
 
-    // Get movie name from title - remove year, Tamil Movie, and numbers
-    let title = $('h1').first().text().trim();
-    let movieName = title.replace(/\s*\(\d{4}\)/, '').replace(/\s+Tamil\s*Movie.*$/i, '').trim().toLowerCase();
-    movieName = movieName.replace(/\d+/g, '').replace(/\s+/g, ' ').trim();
-
-    if (!movieName) return [];
-
-    // Find type page link containing movie name (e.g., "Bhairathi Ranagal (Original)" or "TN (HQ PreDVD)")
+    // Find type page link using folder icon
     let typePageUrl = '';
-    $('a[href*="-movie/"]').each((i, el) => {
-        const href = $(el).attr('href');
-        const text = $(el).text().trim().toLowerCase();
-
-        // Match movie name but NOT quality indicators
-        if (text.includes(movieName) && !text.includes('1080p') && !text.includes('720p') && !text.includes('360p') && !text.includes('hd')) {
-            typePageUrl = new URL(href, baseUrl).toString();
-            return false;
+    $('div.f').each((i, el) => {
+        const img = $(el).find('img[src*="folder"]');
+        if (img.length > 0) {
+            const link = $(el).find('a').first();
+            const href = link.attr('href');
+            if (href) {
+                typePageUrl = new URL(href, baseUrl).toString();
+                return false;
+            }
         }
     });
 
-    // If no type page link found, try constructing URL from movie name
+    // If no type page found via folder icon, try movie name matching
     if (!typePageUrl) {
-        const slug = movieName.replace(/\s+/g, '-');
-        const baseUrl = new URL(baseUrl).origin;
-        const possibleUrls = [
-            `${baseUrl}/${slug}-original-movie/`,
-            `${baseUrl}/${slug}-hq-predvd-movie/`,
-            `${baseUrl}/${slug}-720p-hd-movie/`,
-            `${baseUrl}/${slug}-1080p-hd-movie/`
-        ];
-        
-        for (const url of possibleUrls) {
-            try {
-                const checkHtml = await fetchHtml(url);
-                const $check = cheerio.load(checkHtml);
-                const pageTitle = $check('title').text().toLowerCase();
-                if (pageTitle.includes('movie') || pageTitle.includes('download')) {
-                    typePageUrl = url;
-                    break;
+        let title = $('h1').first().text().trim();
+        let movieName = title.replace(/\s*\(\d{4}\)/, '').replace(/\s+Tamil\s*Movie.*$/i, '').trim().toLowerCase();
+        movieName = movieName.replace(/\d+/g, '').replace(/\s+/g, ' ').trim();
+
+        if (movieName) {
+            $('a[href*="-movie/"]').each((i, el) => {
+                const href = $(el).attr('href');
+                const text = $(el).text().trim().toLowerCase();
+                if (text.includes(movieName) && !text.includes('1080p') && !text.includes('720p') && !text.includes('360p') && !text.includes('hd')) {
+                    typePageUrl = new URL(href, baseUrl).toString();
+                    return false;
                 }
-            } catch (e) {}
+            });
+        }
+    }
+
+    // If still no type page, try constructed URLs
+    if (!typePageUrl) {
+        let title = $('h1').first().text().trim();
+        let movieName = title.replace(/\s*\(\d{4}\)/, '').replace(/\s+Tamil\s*Movie.*$/i, '').trim().toLowerCase();
+        movieName = movieName.replace(/\d+/g, '').replace(/\s+/g, ' ').trim();
+        
+        if (movieName) {
+            const slug = movieName.replace(/\s+/g, '-');
+            const baseUrlOrigin = new URL(baseUrl).origin;
+            const possibleUrls = [
+                `${baseUrlOrigin}/${slug}-original-movie/`,
+                `${baseUrlOrigin}/${slug}-hq-predvd-movie/`
+            ];
+            
+            for (const url of possibleUrls) {
+                try {
+                    const checkHtml = await fetchHtml(url);
+                    const $check = cheerio.load(checkHtml);
+                    const pageTitle = $check('title').text().toLowerCase();
+                    if (pageTitle.includes('movie') || pageTitle.includes('download')) {
+                        typePageUrl = url;
+                        break;
+                    }
+                } catch (e) {}
+            }
         }
     }
 
@@ -152,7 +168,6 @@ async function findQualityLinks(html, baseUrl) {
             const href = $(el).attr('href');
             const text = $(el).text().trim().toLowerCase();
 
-            // Look for quality links
             if (href && !href.includes('../') && href.endsWith('/')) {
                 let quality = 'Unknown';
                 if (text.includes('1080p')) quality = '1080p';
@@ -166,7 +181,7 @@ async function findQualityLinks(html, baseUrl) {
             }
         });
 
-        // If no quality links found on type page, check if type page itself is a quality page
+        // If no quality links, check page title for quality
         if (qualities.length === 0) {
             const pageTitle = $type('title').text().toLowerCase();
             if (pageTitle.includes('1080p')) {
