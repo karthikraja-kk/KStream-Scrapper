@@ -278,8 +278,17 @@ async function getDownloadLinks(qualityPageUrl) {
 
         $('a[href*="/download/"]').each((i, el) => {
             const href = $(el).attr('href');
-            if (href) downloadUrl = new URL(href, qualityPageUrl).toString();
+            if (href && !downloadUrl) downloadUrl = new URL(href, qualityPageUrl).toString();
         });
+
+        if (!downloadUrl) {
+            $('a[href*="/dl/"]').each((i, el) => {
+                const href = $(el).attr('href');
+                if (href && !downloadUrl) downloadUrl = new URL(href, qualityPageUrl).toString();
+            });
+        }
+
+        console.log(`  getDownloadLinks: qualityPageUrl=${qualityPageUrl}, found downloadUrl=${downloadUrl ? 'yes' : 'none'}`);
 
         if (downloadUrl && downloadUrl.includes('/download/')) {
             try {
@@ -462,9 +471,11 @@ async function scrapeMovieDetails(item) {
             download_url_1: ''
         });
     } else {
+        console.log(`  Found ${qualityLinks.length} quality links`);
         for (const q of qualityLinks) {
             const downloadLinks = await getDownloadLinks(q.url);
             const mediaDuration = downloadLinks.duration || movieDetails.duration || null;
+            console.log(`    Quality=${q.quality}, duration=${mediaDuration}, fileSize=${downloadLinks.file_size}, dlUrl1=${downloadLinks.download_url_1 ? 'found' : 'none'}`);
             await supabase.from('media').insert({
                 movie_id: movieId,
                 quality: q.quality,
