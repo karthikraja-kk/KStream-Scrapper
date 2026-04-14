@@ -164,7 +164,8 @@ async function findQualityLinks(html, baseUrl) {
         const typeHtml = await fetchHtml(typePageUrl);
         const $type = cheerio.load(typeHtml);
 
-        $type('a[href*="-movie/"]').each((i, el) => {
+        // Look for quality links - check both -movie/ and -moviesda/ patterns
+        $type('a[href*="-movie/"], a[href*="-moviesda/"]').each((i, el) => {
             const href = $(el).attr('href');
             const text = $(el).text().trim().toLowerCase();
 
