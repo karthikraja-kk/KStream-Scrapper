@@ -73,6 +73,22 @@ function extractMovieDetails(html, url) {
         if (strong.includes('Run Time') || strong.includes('Duration')) durationText = span;
     });
 
+    if (!durationText) {
+        $('li').each((i, el) => {
+            const text = $(el).text();
+            const match = text.match(/(\d+)\s*(min|hour|hr)/i);
+            if (match) {
+                const num = parseInt(match[1]);
+                const unit = match[2].toLowerCase();
+                if (unit.startsWith('h')) {
+                    durationText = num + 'h';
+                } else {
+                    durationText = num + 'm';
+                }
+            }
+        });
+    }
+
     const synopsisText = $('.movie-synopsis').text().replace(/Synopsis:/i, '').trim();
     const synopsis = synopsisText || null;
 
@@ -271,6 +287,22 @@ async function getDownloadLinks(qualityPageUrl) {
                         const data = JSON.parse(jsonLd);
                         if (data.duration) duration = data.duration.replace('PT', '').toLowerCase();
                     } catch (e) {}
+                }
+
+                if (!duration) {
+                    $dl('body').each((i, el) => {
+                        const text = $(el).text();
+                        const match = text.match(/(\d+)\s*(minutes?|mins?|hours?|hrs?)/i);
+                        if (match) {
+                            const num = parseInt(match[1]);
+                            const unit = match[2].toLowerCase();
+                            if (unit.startsWith('h')) {
+                                duration = num + 'h';
+                            } else {
+                                duration = num + 'm';
+                            }
+                        }
+                    });
                 }
 
                 $dl('.dlink a').each((i, el) => {
