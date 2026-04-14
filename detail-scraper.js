@@ -74,16 +74,33 @@ function extractMovieDetails(html, url) {
     });
 
     if (!durationText) {
-        $('li').each((i, el) => {
+        const bodyText = $('body').text();
+        const match = bodyText.match(/(\d+)\s*(?:min|minute|mins|hour|hr|hrs?)/i);
+        if (match) {
+            const num = parseInt(match[1]);
+            const unit = match[2].toLowerCase();
+            if (unit.startsWith('h')) {
+                durationText = num + 'h';
+            } else {
+                durationText = num + 'm';
+            }
+        }
+    }
+
+    if (!durationText) {
+        $('li, span, div, p').each((i, el) => {
             const text = $(el).text();
-            const match = text.match(/(\d+)\s*(min|hour|hr)/i);
-            if (match) {
-                const num = parseInt(match[1]);
-                const unit = match[2].toLowerCase();
-                if (unit.startsWith('h')) {
-                    durationText = num + 'h';
-                } else {
-                    durationText = num + 'm';
+            if (text.match(/^\d+\s*(?:min|hour|hr)/i)) {
+                const match = text.match(/^(\d+)\s*(min|hour|hr)/i);
+                if (match) {
+                    const num = parseInt(match[1]);
+                    const unit = match[2].toLowerCase();
+                    if (unit.startsWith('h')) {
+                        durationText = num + 'h';
+                    } else {
+                        durationText = num + 'm';
+                    }
+                    return false;
                 }
             }
         });
