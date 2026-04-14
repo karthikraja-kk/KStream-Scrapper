@@ -387,6 +387,14 @@ async function scrapeMovieDetails(item) {
     let movieId;
 
     if (existingMovie) {
+        // Get duration from first quality's download page
+        const firstQualityLinks = await findQualityLinks(html, item.url);
+        if (firstQualityLinks.length > 0) {
+            const dl = await getDownloadLinks(firstQualityLinks[0].url);
+            if (dl.duration) {
+                movieDetails.duration = dl.duration;
+            }
+        }
         await supabase
             .from('movies')
             .update(movieDetails)
@@ -401,6 +409,18 @@ async function scrapeMovieDetails(item) {
 
         if (error) throw error;
         movieId = newMovie.id;
+
+        // Get duration from first quality's download page
+        const firstQualityLinks = await findQualityLinks(html, item.url);
+        if (firstQualityLinks.length > 0) {
+            const dl = await getDownloadLinks(firstQualityLinks[0].url);
+            if (dl.duration) {
+                await supabase
+                    .from('movies')
+                    .update({ duration: dl.duration })
+                    .eq('id', movieId);
+            }
+        }
     }
 
     await supabase
