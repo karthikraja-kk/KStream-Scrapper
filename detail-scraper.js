@@ -135,6 +135,8 @@ async function findQualityLinks(html, baseUrl) {
     const $ = cheerio.load(html);
     const qualities = [];
 
+    let typePageUrl = '';
+    
     $('div.f').each((i, el) => {
         const img = $(el).find('img[src*="folder"]');
         if (img.length > 0) {
@@ -142,20 +144,45 @@ async function findQualityLinks(html, baseUrl) {
             const href = link.attr('href');
             const text = link.text().trim().toLowerCase();
             
-            if (href) {
-                let quality = 'Unknown';
-                if (text.includes('1080p')) quality = '1080p';
-                else if (text.includes('720p')) quality = '720p';
-                else if (text.includes('360p')) quality = '360p';
-                else if (text.includes('hd')) quality = '720p';
-                
-                qualities.push({ quality, url: new URL(href, baseUrl).toString() });
+            if (href && !text.includes('1080p') && !text.includes('720p') && !text.includes('360p')) {
+                typePageUrl = new URL(href, baseUrl).toString();
+                return false;
             }
         }
     });
 
-    if (qualities.length === 0) {
-        qualities.push({ quality: 'Unknown', url: baseUrl });
+    if (!typePageUrl) {
+        return [];
+    }
+
+    try {
+        const typeHtml = await fetchHtml(typePageUrl);
+        const $type = cheerio.load(typeHtml);
+
+        $type('div.f').each((i, el) => {
+            const img = $(el).find('img[src*="folder"]');
+            if (img.length > 0) {
+                const link = $(el).find('a').first();
+                const href = link.attr('href');
+                const text = link.text().trim().toLowerCase();
+                
+                if (href) {
+                    let quality = 'Unknown';
+                    if (text.includes('1080p')) quality = '1080p';
+                    else if (text.includes('720p')) quality = '720p';
+                    else if (text.includes('360p')) quality = '360p';
+                    else if (text.includes('hd')) quality = '720p';
+                    
+                    qualities.push({ quality, url: new URL(href, typePageUrl).toString() });
+                }
+            }
+        });
+
+        if (qualities.length === 0) {
+            qualities.push({ quality: 'Unknown', url: typePageUrl });
+        }
+    } catch (e) {
+        console.log('Error fetching type page:', e.message);
     }
 
     return qualities;
@@ -332,12 +359,25 @@ async function scrapeMovieDetails(item) {
     let movieId;
 
     if (existingMovie) {
+        const firstQualityLinks = await findQualityLinks(html, item.url);
+        if (firstQualityLinks.length > 0) {
+            const dl = await getDownloadLinks(firstQualityLinks[0].url);
+            if (dl.duration) movieDetails.duration = dl.duration;
+        }
         await supabase.from('movies').update(movieDetails).eq('id', existingMovie.id);
         movieId = existingMovie.id;
     } else {
         const { data: newMovie, error } = await supabase.from('movies').insert(movieDetails).select('id').single();
         if (error) throw error;
         movieId = newMovie.id;
+
+        const firstQualityLinks = await findQualityLinks(html, item.url);
+        if (firstQualityLinks.length > 0) {
+            const dl = await getDownloadLinks(firstQualityLinks[0].url);
+            if (dl.duration) {
+                await supabase.from('movies').update({ duration: dl.duration }).eq('id', movieId);
+            }
+        }
     }
 
     await supabase.from('media').delete().eq('movie_id', movieId);
