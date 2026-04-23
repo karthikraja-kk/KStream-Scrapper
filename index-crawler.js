@@ -74,15 +74,8 @@ async function queueMovies(movies, folder, priority) {
     return movies.length;
 }
 
-async function cleanQueue() {
-    await supabase.from('scrape_queue').delete().neq('status', 'pending');
-    console.log('Cleaned old queue items');
-}
-
 async function crawlIndex() {
     console.log('Starting Index Crawler...');
-
-    await cleanQueue();
 
     const isRateLimited = await checkRateLimit(15);
     if (isRateLimited) {

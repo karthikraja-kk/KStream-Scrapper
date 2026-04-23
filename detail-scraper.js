@@ -359,37 +359,37 @@ async function scrapeMovieDetails(item) {
 
     const { data: existingMovie } = await supabase
         .from('movies')
-        .select('id')
+        .select('id, duration')
         .eq('movie_url', item.url)
         .single();
 
     let movieId;
+    const qualityLinks = await findQualityLinks(html, item.url);
 
     if (existingMovie) {
-        const firstQualityLinks = await findQualityLinks(html, item.url);
-        if (firstQualityLinks.length > 0) {
-            const dl = await getDownloadLinks(firstQualityLinks[0].url);
+        movieId = existingMovie.id;
+        // If movie exists but has no duration, try to get it from first quality link
+        if (!movieDetails.duration && qualityLinks.length > 0) {
+            const dl = await getDownloadLinks(qualityLinks[0].url);
             if (dl.duration) movieDetails.duration = dl.duration;
         }
-        await supabase.from('movies').update(movieDetails).eq('id', existingMovie.id);
-        movieId = existingMovie.id;
+        await supabase.from('movies').update(movieDetails).eq('id', movieId);
     } else {
         const { data: newMovie, error } = await supabase.from('movies').insert(movieDetails).select('id').single();
         if (error) throw error;
         movieId = newMovie.id;
 
-        const firstQualityLinks = await findQualityLinks(html, item.url);
-        if (firstQualityLinks.length > 0) {
-            const dl = await getDownloadLinks(firstQualityLinks[0].url);
+        // Try to get duration from first quality link for new movie if not found on movie page
+        if (!movieDetails.duration && qualityLinks.length > 0) {
+            const dl = await getDownloadLinks(qualityLinks[0].url);
             if (dl.duration) {
+                movieDetails.duration = dl.duration;
                 await supabase.from('movies').update({ duration: dl.duration }).eq('id', movieId);
             }
         }
     }
 
     await supabase.from('media').delete().eq('movie_id', movieId);
-
-    const qualityLinks = await findQualityLinks(html, item.url);
 
     for (const q of qualityLinks) {
         const downloadLinks = await getDownloadLinks(q.url);
@@ -437,9 +437,6 @@ async function runWorker(items, workerId) {
 async function runDistributed() {
     console.log('Starting Distributed Scraper...');
     console.log(`Workers: ${NUM_WORKERS}, Batch size: ${BATCH_SIZE}`);
-    
-    await supabase.from('scrape_queue').delete().neq('status', 'pending');
-    console.log('Cleaned old queue items');
     
     let totalProcessed = 0;
     let batchNum = 0;
