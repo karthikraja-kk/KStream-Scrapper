@@ -87,30 +87,11 @@ function extractMovieDetails(html, url) {
         }
     }
 
-    if (!durationText) {
-        $('li, span, div, p').each((i, el) => {
-            const text = $(el).text();
-            if (text.match(/^\d+\s*(?:min|hour|hr)/i)) {
-                const match = text.match(/^(\d+)\s*(min|hour|hr)/i);
-                if (match) {
-                    const num = parseInt(match[1]);
-                    const unit = match[2].toLowerCase();
-                    if (unit.startsWith('h')) {
-                        durationText = num + 'h';
-                    } else {
-                        durationText = num + 'm';
-                    }
-                    return false;
-                }
-            }
-        });
-    }
-
     const synopsisText = $('.movie-synopsis').text().replace(/Synopsis:/i, '').trim();
     const synopsis = synopsisText || null;
 
     const director = directorText ? [directorText] : [];
-    const cast = castText ? castText.split(',').map(c => c.trim()).filter(c => c) : [];
+    const cast = castText ? castText.split(/[,|&]/).map(c => c.trim()).filter(c => c) : [];
     const genres = genreText ? genreText.split(',').map(g => g.trim()).filter(g => g) : [];
     const rating = ratingText ? ratingText.replace('/10', '').trim() : '';
     const poster = posterFullUrl || null;
@@ -133,59 +114,94 @@ function extractMovieDetails(html, url) {
 
 async function findQualityLinks(html, baseUrl) {
     const $ = cheerio.load(html);
-    const qualities = [];
+    let qualityLinks = [];
+    const seenQualities = new Set();
 
-    let typePageUrl = '';
-    
+    const getQualityFromText = (text) => {
+        text = text.toLowerCase();
+        let q = null;
+        if (text.includes('1080p')) q = '1080p';
+        else if (text.includes('720p')) q = '720p';
+        else if (text.includes('480p')) q = '480p';
+        else if (text.includes('360p')) q = '360p';
+        else if (text.includes('hd')) q = '720p';
+        else if (text.includes('original')) q = 'Original';
+        
+        if (q && text.includes('hevc')) q += ' (HEVC)';
+        return q;
+    };
+
+    // 1. Try to find quality folders directly on the page
     $('div.f').each((i, el) => {
-        const img = $(el).find('img[src*="folder"]');
-        if (img.length > 0) {
-            const link = $(el).find('a').first();
-            const href = link.attr('href');
-            const text = link.text().trim().toLowerCase();
-            
-            if (href && !text.includes('1080p') && !text.includes('720p') && !text.includes('360p')) {
-                typePageUrl = new URL(href, baseUrl).toString();
-                return false;
+        const link = $(el).find('a').first();
+        const href = link.attr('href');
+        const text = link.text().trim();
+        if (href) {
+            let quality = getQualityFromText(text);
+            if (quality && quality !== 'Original') {
+                if (!seenQualities.has(quality)) {
+                    qualityLinks.push({ quality, url: new URL(href, baseUrl).toString() });
+                    seenQualities.add(quality);
+                }
             }
         }
     });
 
-    if (!typePageUrl) {
-        return [];
-    }
-
-    try {
-        const typeHtml = await fetchHtml(typePageUrl);
-        const $type = cheerio.load(typeHtml);
-
-        $type('div.f').each((i, el) => {
-            const img = $(el).find('img[src*="folder"]');
-            if (img.length > 0) {
-                const link = $(el).find('a').first();
-                const href = link.attr('href');
-                const text = link.text().trim().toLowerCase();
-                
-                if (href) {
-                    let quality = 'Unknown';
-                    if (text.includes('1080p')) quality = '1080p';
-                    else if (text.includes('720p')) quality = '720p';
-                    else if (text.includes('360p')) quality = '360p';
-                    else if (text.includes('hd')) quality = '720p';
-                    
-                    qualities.push({ quality, url: new URL(href, typePageUrl).toString() });
-                }
+    // 2. If no explicit qualities (other than Original) found, check for the "(Original)" folder to find more
+    if (qualityLinks.length === 0) {
+        let originalPageUrl = '';
+        $('div.f').each((i, el) => {
+            const link = $(el).find('a').first();
+            const href = link.attr('href');
+            const text = link.text().trim().toLowerCase();
+            if (href && text.includes('original')) {
+                originalPageUrl = new URL(href, baseUrl).toString();
+                return false;
             }
         });
 
-        if (qualities.length === 0) {
-            qualities.push({ quality: 'Unknown', url: typePageUrl });
+        if (originalPageUrl) {
+            try {
+                const originalHtml = await fetchHtml(originalPageUrl);
+                const $orig = cheerio.load(originalHtml);
+                $orig('div.f').each((i, el) => {
+                    const link = $orig(el).find('a').first();
+                    const href = link.attr('href');
+                    const text = link.text().trim();
+                    if (href) {
+                        let quality = getQualityFromText(text);
+                        if (quality) {
+                            if (!seenQualities.has(quality)) {
+                                qualityLinks.push({ quality, url: new URL(href, originalPageUrl).toString() });
+                                seenQualities.add(quality);
+                            }
+                        }
+                    }
+                });
+            } catch (e) {
+                console.log('Error fetching original page:', e.message);
+            }
         }
-    } catch (e) {
-        console.log('Error fetching type page:', e.message);
     }
 
-    return qualities;
+    // 3. Fallback: If still empty, check for any folder that might be a quality link
+    if (qualityLinks.length === 0) {
+        $('div.f').each((i, el) => {
+            const link = $(el).find('a').first();
+            const href = link.attr('href');
+            const text = link.text().trim();
+            if (href && (text.includes('movie') || text.includes('hd') || text.includes('original'))) {
+                let quality = getQualityFromText(text) || 'Unknown';
+                if (!seenQualities.has(quality)) {
+                    qualityLinks.push({ quality, url: new URL(href, baseUrl).toString() });
+                    seenQualities.add(quality);
+                    return false; // Just take the first one as fallback
+                }
+            }
+        });
+    }
+
+    return qualityLinks;
 }
 
 async function getDownloadLinks(qualityPageUrl) {
@@ -195,151 +211,142 @@ async function getDownloadLinks(qualityPageUrl) {
         const html = await fetchHtml(qualityPageUrl);
         const $ = cheerio.load(html);
 
-        let downloadUrl = '', watchUrl = '', downloadServer2 = '', watchServer2 = '', fileSize = null, duration = null;
-        let movieServer1 = '', movieServer2 = '';
+        let initialDownloadPageUrl = '';
+        let fileSize = null, duration = null;
 
+        // Find link to download details page
         $('a[href*="/download/"]').each((i, el) => {
             const href = $(el).attr('href');
-            if (href && !downloadUrl) downloadUrl = new URL(href, qualityPageUrl).toString();
+            if (href && !initialDownloadPageUrl) initialDownloadPageUrl = new URL(href, qualityPageUrl).toString();
         });
 
-        if (!downloadUrl) {
+        if (!initialDownloadPageUrl) {
             $('a[href*="/dl/"]').each((i, el) => {
                 const href = $(el).attr('href');
-                if (href && !downloadUrl) downloadUrl = new URL(href, qualityPageUrl).toString();
+                if (href && !initialDownloadPageUrl) initialDownloadPageUrl = new URL(href, qualityPageUrl).toString();
             });
         }
 
-        if (downloadUrl && downloadUrl.includes('/download/')) {
+        if (!initialDownloadPageUrl) return { download_url_1: '', download_url_2: '', watch_url_1: '', watch_url_2: '', file_size: null, duration: null };
+
+        // Fetch download details page
+        const dlPageHtml = await fetchHtml(initialDownloadPageUrl);
+        const $dl = cheerio.load(dlPageHtml);
+
+        // Extract metadata
+        $dl('.details, li, div').each((i, el) => {
+            const text = $(el).text();
+            if (text.includes('File Size:')) {
+                const match = text.match(/File Size:\s*(.+)/i);
+                if (match) fileSize = match[1].trim();
+            }
+            if (text.includes('Duration:')) {
+                const match = text.match(/Duration:\s*(.+)/i);
+                if (match) duration = match[1].trim();
+            }
+        });
+
+        const jsonLd = $dl('script[type="application/ld+json"]').html();
+        if (jsonLd) {
             try {
-                const dlPageHtml = await fetchHtml(downloadUrl);
-                const $dl = cheerio.load(dlPageHtml);
-
-                $dl('.details, li, div').each((i, el) => {
-                    const text = $(el).text();
-                    if (text.includes('File Size:')) {
-                        const match = text.match(/File Size:\s*(.+)/i);
-                        if (match) fileSize = match[1].trim();
-                    }
-                    if (text.includes('Duration:')) {
-                        const match = text.match(/Duration:\s*(.+)/i);
-                        if (match) duration = match[1].trim();
-                    }
-                });
-
-                const jsonLd = $dl('script[type="application/ld+json"]').html();
-                if (jsonLd) {
-                    try {
-                        const data = JSON.parse(jsonLd);
-                        if (data.duration) duration = data.duration.replace('PT', '').toLowerCase();
-                    } catch (e) {}
-                }
-
-                if (!duration) {
-                    $dl('body').each((i, el) => {
-                        const text = $(el).text();
-                        const match = text.match(/(\d+)\s*(minutes?|mins?|hours?|hrs?)/i);
-                        if (match) {
-                            const num = parseInt(match[1]);
-                            const unit = match[2].toLowerCase();
-                            if (unit.startsWith('h')) {
-                                duration = num + 'h';
-                            } else {
-                                duration = num + 'm';
-                            }
-                        }
-                    });
-                }
-
-                $dl('.dlink a').each((i, el) => {
-                    const href = $(el).attr('href');
-                    const text = $(el).text().toLowerCase();
-                    if (text.includes('server 1') && href) movieServer1 = href;
-                    if (text.includes('server 2') && href) movieServer2 = href;
-                });
-
-                if (movieServer1 || movieServer2) {
-                    if (movieServer1) {
-                        const server1Html = await fetchHtml(movieServer1);
-                        const $srv1 = cheerio.load(server1Html);
-
-                        let dlServer1FinalUrl = '';
-                        let watchServer1Url = '';
-
-                        $srv1('.dlink a').each((i, el) => {
-                            const href = $(el).attr('href');
-                            const text = $(el).text().toLowerCase();
-                            if (text.includes('download server 1') && href) dlServer1FinalUrl = href;
-                            if (text.includes('watch online server 1') && href) watchServer1Url = href;
-                        });
-
-                        if (dlServer1FinalUrl) {
-                            const server2Html = await fetchHtml(dlServer1FinalUrl);
-                            const $srv2 = cheerio.load(server2Html);
-
-                            $srv2('.dlink a').each((i, el) => {
-                                const href = $(el).attr('href');
-                                const text = $(el).text().toLowerCase();
-                                if (text.includes('download server 1') && href && !downloadUrl) downloadUrl = href;
-                                else if (text.includes('watch online server 1') && href && !watchServer1Url) watchServer1Url = href;
-                            });
-                        }
-
-                        if (watchServer1Url) {
-                            try {
-                                const watch1Html = await fetchHtml(watchServer1Url);
-                                const $w1 = cheerio.load(watch1Html);
-                                $w1('source[src]').each((i, el) => {
-                                    const src = $w1(el).attr('src');
-                                    if (src && !watchUrl) watchUrl = src;
-                                });
-                            } catch (e) {}
-                        }
-                    }
-
-                    if (movieServer2) {
-                        const server2Html = await fetchHtml(movieServer2);
-                        const $srv2 = cheerio.load(server2Html);
-
-                        let dlServer2FinalUrl = '';
-                        let watchServer2Url = '';
-
-                        $srv2('.dlink a').each((i, el) => {
-                            const href = $(el).attr('href');
-                            const text = $(el).text().toLowerCase();
-                            if (text.includes('download server 2') && href) dlServer2FinalUrl = href;
-                            if (text.includes('watch online server 2') && href) watchServer2Url = href;
-                        });
-
-                        if (dlServer2FinalUrl) {
-                            const server3Html = await fetchHtml(dlServer2FinalUrl);
-                            const $srv3 = cheerio.load(server3Html);
-
-                            $srv3('.dlink a').each((i, el) => {
-                                const href = $(el).attr('href');
-                                const text = $(el).text().toLowerCase();
-                                if (text.includes('download server 2') && href && !downloadServer2) downloadServer2 = href;
-                                else if (text.includes('watch online server 2') && href && !watchServer2Url) watchServer2Url = href;
-                            });
-                        }
-
-                        if (watchServer2Url) {
-                            try {
-                                const watch2Html = await fetchHtml(watchServer2Url);
-                                const $w2 = cheerio.load(watch2Html);
-                                $w2('source[src]').each((i, el) => {
-                                    const src = $w2(el).attr('src');
-                                    if (src && !watchServer2) watchServer2 = src;
-                                });
-                            } catch (e) {}
-                        }
-                    }
+                const data = JSON.parse(jsonLd);
+                if (data.duration) {
+                    duration = data.duration.replace('PT', '').toLowerCase();
                 }
             } catch (e) {}
         }
 
-        return { download_url_1: downloadUrl, download_url_2: downloadServer2, watch_url_1: watchUrl, watch_url_2: watchServer2, file_size: fileSize, duration: duration };
+        let movieServer1PageUrl = '', movieServer2PageUrl = '';
+        $dl('.dlink a').each((i, el) => {
+            const href = $(el).attr('href');
+            const text = $(el).text().toLowerCase();
+            if (text.includes('server 1') && href) movieServer1PageUrl = new URL(href, initialDownloadPageUrl).toString();
+            if (text.includes('server 2') && href) movieServer2PageUrl = new URL(href, initialDownloadPageUrl).toString();
+        });
+
+        let finalDownloadUrl1 = '', finalWatchUrl1 = '';
+        let finalDownloadUrl2 = '', finalWatchUrl2 = '';
+
+        // Server 1 Chain
+        if (movieServer1PageUrl) {
+            try {
+                const srv1Html = await fetchHtml(movieServer1PageUrl);
+                const $srv1 = cheerio.load(srv1Html);
+
+                let dlSrv1RedirectUrl = '', watchSrv1PageUrl = '';
+                $srv1('.dlink a').each((i, el) => {
+                    const href = $(el).attr('href');
+                    const text = $(el).text().toLowerCase();
+                    if (text.includes('download server 1') && href) dlSrv1RedirectUrl = new URL(href, movieServer1PageUrl).toString();
+                    if (text.includes('watch online server 1') && href) watchSrv1PageUrl = new URL(href, movieServer1PageUrl).toString();
+                });
+
+                if (dlSrv1RedirectUrl) {
+                    const srv1FinalHtml = await fetchHtml(dlSrv1RedirectUrl);
+                    const $srv1F = cheerio.load(srv1FinalHtml);
+                    $srv1F('.dlink a').each((i, el) => {
+                        const href = $(el).attr('href');
+                        const text = $(el).text().toLowerCase();
+                        if (text.includes('download server 1') && href) finalDownloadUrl1 = href;
+                    });
+                }
+
+                if (watchSrv1PageUrl) {
+                    const watch1Html = await fetchHtml(watchSrv1PageUrl);
+                    const $w1 = cheerio.load(watch1Html);
+                    const src = $w1('source[src]').attr('src');
+                    if (src) finalWatchUrl1 = src;
+                }
+            } catch (e) {
+                console.log('Error in Server 1 chain:', e.message);
+            }
+        }
+
+        // Server 2 Chain
+        if (movieServer2PageUrl) {
+            try {
+                const srv2Html = await fetchHtml(movieServer2PageUrl);
+                const $srv2 = cheerio.load(srv2Html);
+
+                let dlSrv2RedirectUrl = '', watchSrv2PageUrl = '';
+                $srv2('.dlink a').each((i, el) => {
+                    const href = $(el).attr('href');
+                    const text = $(el).text().toLowerCase();
+                    if (text.includes('download server 2') && href) dlSrv2RedirectUrl = new URL(href, movieServer2PageUrl).toString();
+                    if (text.includes('watch online server 2') && href) watchSrv2PageUrl = new URL(href, movieServer2PageUrl).toString();
+                });
+
+                if (dlSrv2RedirectUrl) {
+                    const srv2FinalHtml = await fetchHtml(dlSrv2RedirectUrl);
+                    const $srv2F = cheerio.load(srv2FinalHtml);
+                    $srv2F('.dlink a').each((i, el) => {
+                        const href = $(el).attr('href');
+                        const text = $(el).text().toLowerCase();
+                        if (text.includes('download server 2') && href) finalDownloadUrl2 = href;
+                    });
+                }
+
+                if (watchSrv2PageUrl) {
+                    const watch2Html = await fetchHtml(watchSrv2PageUrl);
+                    const $w2 = cheerio.load(watch2Html);
+                    const src = $w2('source[src]').attr('src');
+                    if (src) finalWatchUrl2 = src;
+                }
+            } catch (e) {
+                console.log('Error in Server 2 chain:', e.message);
+            }
+        }
+
+        return { 
+            download_url_1: finalDownloadUrl1 || initialDownloadPageUrl, 
+            download_url_2: finalDownloadUrl2, 
+            watch_url_1: finalWatchUrl1, 
+            watch_url_2: finalWatchUrl2, 
+            file_size: fileSize, 
+            duration: duration 
+        };
     } catch (e) {
+        console.log('Error in getDownloadLinks:', e.message);
         return { download_url_1: '', download_url_2: '', watch_url_1: '', watch_url_2: '', file_size: null, duration: null };
     }
 }
