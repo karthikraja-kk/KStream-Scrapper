@@ -3,7 +3,7 @@ import { supabase, getSourceUrl } from './lib/supabase.js';
 import { fetchHtml, delay } from './lib/fetch.js';
 
 // Configuration
-const TARGET_YEAR = process.env.TARGET_YEAR || '2026'; // Defaults to 2026 if not specified
+const TARGET_YEAR = process.env.TARGET_YEAR || '2026';
 
 async function getYearFolders() {
     const baseUrl = await getSourceUrl();
@@ -20,7 +20,6 @@ async function getYearFolders() {
         if (href && hasIcon) {
             const name = link.text().trim();
             const fullUrl = new URL(href, baseUrl).toString();
-            // Filter: Name must contain a year
             if (/\d{4}/.test(name)) {
                 folders.push({ name, url: fullUrl });
             }
@@ -50,7 +49,6 @@ async function getMoviesInFolder(folderUrl) {
                 const name = link.text().trim();
                 const fullUrl = new URL(href, currentUrl).toString();
 
-                // Skip obviously non-movie folders or links back to other years
                 const isYearLink = /Tamil \d{4} Movies|Moviesda \d{4} Movies/i.test(name);
                 const isAudioLaunch = /Audio Launch|Official/i.test(name);
                 const isPageLink = /பக்கத்திற்குச் செல்ல|Page Tags/i.test(name);
@@ -66,7 +64,6 @@ async function getMoviesInFolder(folderUrl) {
 
         console.log(`  - Discovered ${moviesOnPage} unique movies on page ${pageNum}`);
 
-        // Pagination: Find next page link in div.pagecontent
         let nextPageUrl = null;
         $('div.pagecontent a').each((i, el) => {
             const text = $(el).text().trim();
@@ -80,7 +77,7 @@ async function getMoviesInFolder(folderUrl) {
         if (!nextPageUrl || nextPageUrl === currentUrl) break;
         currentUrl = nextPageUrl;
         pageNum++;
-        await delay(1000); // Respectful delay between pages
+        await delay(1000);
     }
     return allMovies;
 }
@@ -106,8 +103,6 @@ async function addToQueue(movies, folderName) {
 async function runIndexCrawler() {
     try {
         const folders = await getYearFolders();
-        
-        // Find the target year folder (restricted for testing)
         const targetFolder = folders.find(f => f.name.includes(TARGET_YEAR));
         
         if (!targetFolder) {
@@ -117,9 +112,7 @@ async function runIndexCrawler() {
 
         console.log(`\nProcessing target folder: ${targetFolder.name} (${targetFolder.url})`);
         const movies = await getMoviesInFolder(targetFolder.url);
-        
         console.log(`\nDiscovery Complete: Found total of ${movies.length} movies.`);
-        
         await addToQueue(movies, targetFolder.name);
 
     } catch (err) {
