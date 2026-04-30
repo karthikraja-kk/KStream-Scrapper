@@ -190,35 +190,44 @@ async function scrapeMovieDetails(item) {
         await updateQueueStatus(item.id, 'error', movieError.message);
         return;
     }
+// Clear old media
+const { error: deleteError } = await supabase.from('media').delete().eq('movie_id', movieId);
+if (deleteError) console.error(`  - FAILED to clear old media for ${movieId}: ${deleteError.message}`);
 
-    const movieId = movieRecord.id;
-    await supabase.from('media').delete().eq('movie_id', movieId);
+// Process Qualities
+let firstDuration = null;
+let status = 'done';
+let errorMsg = null;
+let mediaCount = 0;
 
-    let firstDuration = null;
-    let status = 'done';
-    let errorMsg = null;
+if (qualities.length > 0) {
+    for (const q of qualities) {
+        console.log(`  - Quality: ${q.label}...`);
+        const links = await extractFinalLinks(q.url);
+        if (!firstDuration) firstDuration = links.duration;
 
-    if (qualities.length > 0) {
-        for (const q of qualities) {
-            console.log(`  - Quality: ${q.label}...`);
-            const links = await extractFinalLinks(q.url);
-            if (!firstDuration) firstDuration = links.duration;
+        const { error: insertError } = await supabase.from('media').insert({
+            movie_id: movieId,
+            quality: q.label,
+            file_size: links.size,
+            duration: links.duration,
+            download_url_1: links.download,
+            watch_url_1: links.stream
+        });
 
-            await supabase.from('media').insert({
-                movie_id: movieId,
-                quality: q.label,
-                file_size: links.size,
-                duration: links.duration,
-                download_url_1: links.download,
-                watch_url_1: links.stream
-            });
-            await delay(MOVIE_DELAY_MS);
+        if (insertError) {
+            console.error(`  - FAILED to insert media (${q.label}): ${insertError.message}`);
+        } else {
+            mediaCount++;
         }
-    } else {
-        console.log(`  - No qualities found. Marking as failed.`);
-        status = 'error';
-        errorMsg = 'No quality links found';
+        await delay(MOVIE_DELAY_MS);
     }
+    console.log(`  - Successfully inserted ${mediaCount} media records.`);
+} else {
+    console.log(`  - No qualities found. Marking as failed.`);
+    status = 'error';
+    errorMsg = 'No quality links found';
+}
 
     if (firstDuration) {
         await supabase.from('movies').update({ duration: firstDuration }).eq('id', movieId);
