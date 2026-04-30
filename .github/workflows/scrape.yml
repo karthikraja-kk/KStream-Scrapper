@@ -2,47 +2,48 @@ name: Scrape
 
 on:
   schedule:
-    workflow_dispatch:
-      inputs:
-        trigger_by:
-          description: 'Execution Mode'
-          required: true
-          default: 'user'
-          type: choice
-          options:
-            - user
-            - scheduler
-            - full
-        target_year:
-          description: 'Year folder to scrape (if mode is user/scheduler)'
-          required: true
-          default: '2026'
+    - cron: '30 21 * * *'
+  workflow_dispatch:
+    inputs:
+      trigger_by:
+        description: 'Execution Mode'
+        required: true
+        default: 'user'
+        type: choice
+        options:
+          - user
+          - scheduler
+          - full
+      target_year:
+        description: 'Year folder to scrape (if mode is user/scheduler)'
+        required: true
+        default: '2026'
 
-    jobs:
-    scrape:
-      runs-on: ubuntu-latest
-      steps:
-        - uses: actions/checkout@v4
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-        - name: Setup Node.js
-          uses: actions/setup-node@v4
-          with:
-            node-version: '20'
-            cache: 'npm'
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
-        - name: Install dependencies
-          run: npm install
+      - name: Install dependencies
+        run: npm install
 
-        - name: Run Index Crawler
-          env:
-            SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-            SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-            TRIGGER_BY: ${{ github.event.inputs.trigger_by }}
-            TARGET_YEAR: ${{ github.event.inputs.target_year }}
-          run: node index-crawler.js
+      - name: Run Index Crawler
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          TRIGGER_BY: ${{ github.event.inputs.trigger_by }}
+          TARGET_YEAR: ${{ github.event.inputs.target_year }}
+        run: node index-crawler.js
 
-        - name: Run Detail Scraper
-          env:
-            SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-            SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          run: node detail-scraper.js
+      - name: Run Detail Scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node detail-scraper.js
