@@ -53,8 +53,9 @@ async function getMoviesInFolder(folderUrl) {
                 const isAudioLaunch = /Audio Launch|Official/i.test(name);
                 const isPageLink = /பக்கத்திற்குச் செல்ல|Page Tags/i.test(name);
                 const isMoviesdaMeta = /Moviesda Download|Tamil Full Movie Download/i.test(name);
+                const isWebSeries = /web-series/i.test(fullUrl) || /Web Series/i.test(name);
 
-                if (!globalSeenUrls.has(fullUrl) && !isYearLink && !isAudioLaunch && !isPageLink && !isMoviesdaMeta) {
+                if (!globalSeenUrls.has(fullUrl) && !isYearLink && !isAudioLaunch && !isPageLink && !isMoviesdaMeta && !isWebSeries) {
                     allMovies.push({ name, url: fullUrl });
                     globalSeenUrls.add(fullUrl);
                     moviesOnPage++;

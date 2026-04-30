@@ -88,7 +88,6 @@ async function extractFinalLinks(qualityPageUrl) {
 
         if (!largestPage) return { download1: null, stream1: null, download2: null, stream2: null, duration: null, size: null };
 
-        // Fetch the initial download details page
         const html1 = await fetchHtml(largestPage);
         const $1 = cheerio.load(html1);
 
@@ -106,10 +105,9 @@ async function extractFinalLinks(qualityPageUrl) {
             download1: null, stream1: null,
             download2: null, stream2: null,
             duration,
-            size: `${maxMB.toFixed(2)} MB`
+            size: maxMB > 0 ? `${maxMB.toFixed(2)} MB` : null
         };
 
-        // --- Helper: Follow Redirect Chain ---
         async function followChain(serverNum) {
             try {
                 const srvNode = $1(`.dlink a:contains("Server ${serverNum}")`);
@@ -126,10 +124,8 @@ async function extractFinalLinks(qualityPageUrl) {
                 const html3 = await fetchHtml(finalRedirectUrl);
                 const $3 = cheerio.load(html3);
                 
-                // Final Download Link
                 const dl = $3(`.dlink a:contains("Download Server ${serverNum}")`).attr('href');
 
-                // Watch Link
                 let stream = null;
                 const watchLinkNode = $3(`.dlink a:contains("Watch Online Server ${serverNum}")`);
                 if (watchLinkNode.length > 0) {
@@ -141,12 +137,10 @@ async function extractFinalLinks(qualityPageUrl) {
 
                 return { dl, watch: stream };
             } catch (err) {
-                console.error(`  - Chain Error (Server ${serverNum}): ${err.message}`);
                 return { dl: null, watch: null };
             }
         }
 
-        // Process both servers
         const srv1 = await followChain(1);
         results.download1 = srv1.dl;
         results.stream1 = srv1.watch;
@@ -164,6 +158,13 @@ async function extractFinalLinks(qualityPageUrl) {
 
 async function scrapeMovieDetails(item) {
     console.log(`\nScraping: ${item.url}`);
+
+    if (/web-series/i.test(item.url)) {
+        console.log(`  - Skipping Web Series: ${item.url}`);
+        await updateQueueStatus(item.id, 'skipped', 'Web Series excluded');
+        return;
+    }
+
     let movieDetails = { movie_url: item.url };
     let qualities = [];
 
@@ -202,6 +203,42 @@ async function scrapeMovieDetails(item) {
         console.error(`  - Metadata Fetch Error: ${err.message}`);
     }
 
+    if (qualities.length === 0) {
+        console.log(`  - No qualities found. Marking as failed.`);
+        await updateQueueStatus(item.id, 'error', 'No quality links found');
+        return;
+    }
+
+    const mediaResults = [];
+    let totalValidLinks = 0;
+    let firstDuration = null;
+
+    for (const q of qualities) {
+        console.log(`  - Quality: ${q.label}...`);
+        const links = await extractFinalLinks(q.url);
+        if (links.download1 || links.download2 || links.stream1 || links.stream2) totalValidLinks++;
+        if (!firstDuration) firstDuration = links.duration;
+
+        mediaResults.push({
+            quality: q.label,
+            file_size: links.size,
+            download1: links.download1,
+            download2: links.download2,
+            stream1: links.stream1,
+            stream2: links.stream2
+        });
+        await delay(MOVIE_DELAY_MS);
+    }
+
+    if (totalValidLinks === 0) {
+        console.log(`  - FAILURE: No valid links found. Not saving to DB.`);
+        await updateQueueStatus(item.id, 'error', 'No valid download/stream links found');
+        return;
+    }
+
+    console.log(`  - Success: Found links. Saving to DB...`);
+    if (firstDuration) movieDetails.duration = firstDuration;
+    
     const { data: movieRecord, error: movieError } = await supabase
         .from('movies')
         .upsert(movieDetails, { onConflict: 'movie_url' })
@@ -216,48 +253,21 @@ async function scrapeMovieDetails(item) {
 
     const movieId = movieRecord.id;
     await supabase.from('media').delete().eq('movie_id', movieId);
-
-    let firstDuration = null;
-    let status = 'done';
-    let errorMsg = null;
-    let mediaCount = 0;
-
-    if (qualities.length > 0) {
-        for (const q of qualities) {
-            console.log(`  - Quality: ${q.label}...`);
-            const links = await extractFinalLinks(q.url);
-            if (!firstDuration) firstDuration = links.duration;
-
-            await supabase.from('media').insert({
-                movie_id: movieId,
-                quality: q.label,
-                file_size: links.size,
-                download_url_1: links.download1,
-                download_url_2: links.download2,
-                watch_url_1: links.stream1,
-                watch_url_2: links.stream2
-            });
-
-            if (insertError) {
-                console.error(`  - FAILED to insert media (${q.label}): ${insertError.message}`);
-            } else {
-                mediaCount++;
-            }
-            await delay(MOVIE_DELAY_MS);
-        }
-        console.log(`  - Successfully inserted ${mediaCount} media records.`);
-    } else {
-        console.log(`  - No qualities found. Marking as failed.`);
-        status = 'error';
-        errorMsg = 'No quality links found';
+    
+    for (const m of mediaResults) {
+        await supabase.from('media').insert({
+            movie_id: movieId,
+            quality: m.quality,
+            file_size: m.file_size,
+            download_url_1: m.download1,
+            download_url_2: m.download2,
+            watch_url_1: m.stream1,
+            watch_url_2: m.stream2
+        });
     }
 
-    if (firstDuration) {
-        await supabase.from('movies').update({ duration: firstDuration }).eq('id', movieId);
-    }
-
-    await updateQueueStatus(item.id, status, errorMsg);
-    console.log(`  - Completed: ${movieDetails.movie_name || item.url} [Status: ${status}]`);
+    await updateQueueStatus(item.id, 'done');
+    console.log(`  - Completed: ${movieDetails.movie_name || item.url}`);
 }
 
 async function getQueueItems(limit) {
@@ -272,18 +282,10 @@ async function getQueueItems(limit) {
 }
 
 async function updateQueueStatus(id, status, errorMsg = null) {
-    const { error } = await supabase
+    await supabase
         .from('scrape_queue')
-        .update({ 
-            status, 
-            error_msg: errorMsg, 
-            processed_at: new Date().toISOString() 
-        })
+        .update({ status, error_msg: errorMsg, processed_at: new Date().toISOString() })
         .eq('id', id);
-    
-    if (error) {
-        console.error(`  - FAILED to update queue status for ${id} to ${status}: ${error.message}`);
-    }
 }
 
 async function runDistributed() {
@@ -294,16 +296,12 @@ async function runDistributed() {
             console.log('No more pending items.');
             break;
         }
-
         console.log(`\nBatch: Processing ${items.length} items...`);
         await Promise.all(items.map(item => updateQueueStatus(item.id, 'processing')));
-
-        await Promise.all(items.map(item => 
-            scrapeMovieDetails(item).catch(err => {
-                console.error(`Critical error for ${item.url}: ${err.message}`);
-                return updateQueueStatus(item.id, 'error', err.message);
-            })
-        ));
+        await Promise.all(items.map(item => scrapeMovieDetails(item).catch(err => {
+            console.error(`Critical error for ${item.url}: ${err.message}`);
+            return updateQueueStatus(item.id, 'error', err.message);
+        })));
         await delay(2000);
     }
 }
