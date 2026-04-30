@@ -5,6 +5,12 @@ import { fetchHtml, delay } from './lib/fetch.js';
 // Configuration
 const TARGET_YEAR = process.env.TARGET_YEAR || '2026';
 
+async function cleanQueue() {
+    console.log('Cleaning previous scrape queue...');
+    const { error } = await supabase.from('scrape_queue').delete().neq('status', 'processing');
+    if (error) console.error('Failed to clean queue:', error.message);
+}
+
 async function getYearFolders() {
     const baseUrl = await getSourceUrl();
     console.log(`Discovery: Fetching home page from ${baseUrl}`);
@@ -75,12 +81,10 @@ async function getMoviesInFolder(folderUrl) {
             }
         });
 
-        // Disable pagination for testing: Stop after first page
-        // if (!nextPageUrl || nextPageUrl === currentUrl) break;
-        // currentUrl = nextPageUrl;
-        currentUrl = null; // Forces stop after first page
+        if (!nextPageUrl || nextPageUrl === currentUrl) break;
+        currentUrl = nextPageUrl;
         pageNum++;
-        await delay(1000);
+        await delay(1000); 
     }
     return allMovies;
 }
@@ -105,6 +109,7 @@ async function addToQueue(movies, folderName) {
 
 async function runIndexCrawler() {
     try {
+        await cleanQueue();
         const folders = await getYearFolders();
         const targetFolder = folders.find(f => f.name.includes(TARGET_YEAR));
         
@@ -115,7 +120,9 @@ async function runIndexCrawler() {
 
         console.log(`\nProcessing target folder: ${targetFolder.name} (${targetFolder.url})`);
         const movies = await getMoviesInFolder(targetFolder.url);
+        
         console.log(`\nDiscovery Complete: Found total of ${movies.length} movies.`);
+        
         await addToQueue(movies, targetFolder.name);
 
     } catch (err) {
