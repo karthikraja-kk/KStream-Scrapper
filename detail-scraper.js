@@ -4,7 +4,6 @@ import { fetchHtml, delay } from './lib/fetch.js';
 import { cpus } from 'os';
 
 // Configuration
-const BATCH_SIZE = 10;
 const MOVIE_DELAY_MS = 1000;
 const NUM_WORKERS = Math.max(1, Math.min(4, cpus().length));
 
@@ -57,7 +56,6 @@ function extractMetadata(html, movieUrl) {
     };
 }
 
-// --- Helper: Parse File Size ---
 function parseSize(text) {
     const match = text.match(/([\d.]+)\s*(MB|GB)/i);
     if (!match) return 0;
@@ -67,30 +65,30 @@ function parseSize(text) {
 
 // --- STEP 12/13/14 Logic: Links & Stream ---
 async function extractFinalLinks(qualityPageUrl) {
-    const html = await fetchHtml(qualityPageUrl);
-    const $ = cheerio.load(html);
-    
-    let largestPage = null;
-    let maxMB = -1;
-
-    // Step 9: Selection of Largest File
-    $('div.folder').each((i, el) => {
-        const $f = $(el);
-        const link = $f.find('a[href*="/download/"]').first();
-        let sizeMB = 0;
-        $f.find('li').each((j, li) => {
-            if ($(li).text().includes('File Size:')) sizeMB = parseSize($(li).text());
-        });
-        if (link.attr('href') && sizeMB > maxMB) {
-            maxMB = sizeMB;
-            largestPage = new URL(link.attr('href'), qualityPageUrl).toString();
-        }
-    });
-
-    if (!largestPage) return { download: null, stream: null, duration: null, size: null };
-
-    // Step 12: Redirect Chain
     try {
+        const html = await fetchHtml(qualityPageUrl);
+        const $ = cheerio.load(html);
+        
+        let largestPage = null;
+        let maxMB = -1;
+
+        // Step 9: Selection of Largest File
+        $('div.folder').each((i, el) => {
+            const $f = $(el);
+            const link = $f.find('a[href*="/download/"]').first();
+            let sizeMB = 0;
+            $f.find('li').each((j, li) => {
+                if ($(li).text().includes('File Size:')) sizeMB = parseSize($(li).text());
+            });
+            if (link.attr('href') && sizeMB > maxMB) {
+                maxMB = sizeMB;
+                largestPage = new URL(link.attr('href'), qualityPageUrl).toString();
+            }
+        });
+
+        if (!largestPage) return { download: null, stream: null, duration: null, size: null };
+
+        // Step 12: Redirect Chain
         const html1 = await fetchHtml(largestPage);
         const $1 = cheerio.load(html1);
 
@@ -105,13 +103,13 @@ async function extractFinalLinks(qualityPageUrl) {
         });
 
         const srv1Node = $1('.dlink a:contains("Server 1")');
-        if (srv1Node.length === 0) return { download: null, stream: null, duration, size: maxMB };
+        if (srv1Node.length === 0) return { download: null, stream: null, duration, size: `${maxMB.toFixed(2)} MB` };
         const srv1Url = new URL(srv1Node.attr('href'), largestPage).toString();
         
         const html2 = await fetchHtml(srv1Url);
         const $2 = cheerio.load(html2);
         const finalRedirectNode = $2('.dlink a:contains("Download Server 1")');
-        if (finalRedirectNode.length === 0) return { download: null, stream: null, duration, size: maxMB };
+        if (finalRedirectNode.length === 0) return { download: null, stream: null, duration, size: `${maxMB.toFixed(2)} MB` };
         const finalRedirectUrl = new URL(finalRedirectNode.attr('href'), srv1Url).toString();
 
         const html3 = await fetchHtml(finalRedirectUrl);
@@ -124,97 +122,112 @@ async function extractFinalLinks(qualityPageUrl) {
         const watchLinkNode = $3('.dlink a:contains("Watch Online Server 1")');
         let stream = null;
         if (watchLinkNode.length > 0) {
-            const watchUrl = new URL(watchLinkNode.attr('href'), finalRedirectUrl).toString();
-            const watchHtml = await fetchHtml(watchUrl);
-            const $w = cheerio.load(watchHtml);
-            stream = $w('source').attr('src') || $w('video').attr('src');
+            try {
+                const watchUrl = new URL(watchLinkNode.attr('href'), finalRedirectUrl).toString();
+                const watchHtml = await fetchHtml(watchUrl);
+                const $w = cheerio.load(watchHtml);
+                stream = $w('source').attr('src') || $w('video').attr('src');
+            } catch (e) {
+                console.error(`  - Stream Fetch Error: ${e.message}`);
+            }
         }
 
         return { download: dl, stream, duration, size: `${maxMB.toFixed(2)} MB` };
     } catch (err) {
-        console.error(`  - Chain Error for ${qualityPageUrl}: ${err.message}`);
-        return { download: null, stream: null, duration: null, size: `${maxMB.toFixed(2)} MB` };
+        console.error(`  - Final Link Error for ${qualityPageUrl}: ${err.message}`);
+        return { download: null, stream: null, duration: null, size: null };
     }
 }
 
 async function scrapeMovieDetails(item) {
     console.log(`\nScraping: ${item.url}`);
-    const html = await fetchHtml(item.url);
-    const movieDetails = extractMetadata(html, item.url);
-    
-    // Step 6: Find Qualities (using folder icons)
-    const $ = cheerio.load(html);
-    let qualitySelectionUrl = null;
-    $('div.f a').each((i, el) => {
-        if ($(el).text().toLowerCase().includes('(original)')) {
-            qualitySelectionUrl = new URL($(el).attr('href'), item.url).toString();
-            return false;
-        }
-    });
+    let movieDetails = { movie_url: item.url };
+    let qualities = [];
 
-    if (!qualitySelectionUrl) {
-        console.log(`  - No quality selection folder found for ${movieDetails.movie_name}`);
-        await updateQueueStatus(item.id, 'skipped', 'No quality selection folder');
-        return movieDetails.movie_name;
-    }
+    try {
+        const html = await fetchHtml(item.url);
+        movieDetails = extractMetadata(html, item.url);
+        
+        // Step 6: Find Qualities (using folder icons - CORRECTED)
+        const $ = cheerio.load(html);
+        let qualitySelectionUrl = null;
+        $('div.f').each((i, el) => {
+            if ($(el).find('img[src*="folder.svg"]').length > 0) {
+                const link = $(el).find('a').first();
+                qualitySelectionUrl = new URL(link.attr('href'), item.url).toString();
+                return false;
+            }
+        });
 
-    // Step 7: Get available qualities
-    const qHtml = await fetchHtml(qualitySelectionUrl);
-    const $q = cheerio.load(qHtml);
-    const qualities = [];
-    $q('div.f a').each((i, el) => {
-        const name = $q(el).text().trim();
-        const match = name.match(/\(([^)]+)\)/);
-        if (match) {
-            qualities.push({ 
-                label: match[1], 
-                url: new URL($q(el).attr('href'), qualitySelectionUrl).toString() 
+        if (qualitySelectionUrl) {
+            // Step 7: Get available qualities
+            const qHtml = await fetchHtml(qualitySelectionUrl);
+            const $q = cheerio.load(qHtml);
+            $q('div.f').each((i, el) => {
+                if ($q(el).find('img[src*="folder.svg"]').length > 0) {
+                    const link = $q(el).find('a').first();
+                    const name = link.text().trim();
+                    const match = name.match(/\(([^)]+)\)/);
+                    if (match) {
+                        qualities.push({ 
+                            label: match[1], 
+                            url: new URL(link.attr('href'), qualitySelectionUrl).toString() 
+                        });
+                    }
+                }
             });
         }
-    });
-
-    // Save Movie first
-    const { data: existingMovie } = await supabase.from('movies').select('id').eq('movie_url', item.url).single();
-    let movieId;
-    if (existingMovie) {
-        movieId = existingMovie.id;
-        await supabase.from('movies').update(movieDetails).eq('id', movieId);
-    } else {
-        const { data: newMovie, error } = await supabase.from('movies').insert(movieDetails).select('id').single();
-        if (error) throw error;
-        movieId = newMovie.id;
+    } catch (err) {
+        console.error(`  - Metadata Fetch Error: ${err.message}`);
     }
+
+    // Save Movie (upsert)
+    const { data: movieRecord, error: movieError } = await supabase
+        .from('movies')
+        .upsert(movieDetails, { onConflict: 'movie_url' })
+        .select('id')
+        .single();
+    
+    if (movieError) {
+        console.error(`  - DB Error (Movies): ${movieError.message}`);
+        await updateQueueStatus(item.id, 'error', movieError.message);
+        return;
+    }
+
+    const movieId = movieRecord.id;
 
     // Clear old media
     await supabase.from('media').delete().eq('movie_id', movieId);
 
-    // Process Each Quality
+    // Process Qualities
     let firstDuration = null;
-    for (const q of qualities) {
-        console.log(`  - Quality: ${q.label}...`);
-        const links = await extractFinalLinks(q.url);
-        
-        if (!firstDuration) firstDuration = links.duration;
+    if (qualities.length > 0) {
+        for (const q of qualities) {
+            console.log(`  - Quality: ${q.label}...`);
+            const links = await extractFinalLinks(q.url);
+            if (!firstDuration) firstDuration = links.duration;
 
-        await supabase.from('media').insert({
-            movie_id: movieId,
-            quality: q.label,
-            file_size: links.size,
-            duration: links.duration,
-            download_url_1: links.download,
-            watch_url_1: links.stream
-        });
-        await delay(MOVIE_DELAY_MS);
+            await supabase.from('media').insert({
+                movie_id: movieId,
+                quality: q.label,
+                file_size: links.size,
+                duration: links.duration,
+                download_url_1: links.download,
+                watch_url_1: links.stream
+            });
+            await delay(MOVIE_DELAY_MS);
+        }
+    } else {
+        console.log(`  - No qualities found.`);
     }
 
-    // Update movie with duration if we found one
+    // Update movie with duration if found
     if (firstDuration) {
         await supabase.from('movies').update({ duration: firstDuration }).eq('id', movieId);
     }
 
     await updateQueueStatus(item.id, 'done');
-    console.log(`  - Completed: ${movieDetails.movie_name}`);
-    return movieDetails.movie_name;
+    console.log(`  - Completed: ${movieDetails.movie_name || item.url}`);
 }
 
 // --- Queue Management ---
@@ -225,7 +238,6 @@ async function getQueueItems(limit) {
         .eq('status', 'pending')
         .order('priority', { ascending: false })
         .limit(limit);
-    
     if (error) throw error;
     return data;
 }
@@ -240,23 +252,19 @@ async function updateQueueStatus(id, status, errorMsg = null) {
 // --- Orchestration ---
 async function runDistributed() {
     console.log(`Starting Scraper Workers (${NUM_WORKERS})...`);
-    
     while (true) {
         const items = await getQueueItems(NUM_WORKERS);
         if (items.length === 0) {
-            console.log('No more pending items in queue.');
+            console.log('No more pending items.');
             break;
         }
-
-        // Parallel processing with batch
         await Promise.all(items.map(item => 
             scrapeMovieDetails(item).catch(err => {
-                console.error(`Error processing ${item.url}: ${err.message}`);
+                console.error(`Critical error for ${item.url}: ${err.message}`);
                 return updateQueueStatus(item.id, 'error', err.message);
             })
         ));
-        
-        await delay(2000); // Batch delay
+        await delay(2000);
     }
 }
 

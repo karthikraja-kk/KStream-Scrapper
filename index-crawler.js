@@ -47,9 +47,16 @@ async function getMoviesInFolder(folderUrl) {
             const hasIcon = $(el).find('img[src*="folder.svg"]').length > 0;
             
             if (href && hasIcon) {
+                const name = link.text().trim();
                 const fullUrl = new URL(href, currentUrl).toString();
-                if (!globalSeenUrls.has(fullUrl)) {
-                    allMovies.push({ name: link.text().trim(), url: fullUrl });
+
+                // Skip obviously non-movie folders or links back to other years
+                const isYearLink = /Tamil \d{4} Movies/i.test(name);
+                const isAudioLaunch = /Audio Launch/i.test(name);
+                const isPageLink = /பக்கத்திற்குச் செல்ல/i.test(name);
+
+                if (!globalSeenUrls.has(fullUrl) && !isYearLink && !isAudioLaunch && !isPageLink) {
+                    allMovies.push({ name, url: fullUrl });
                     globalSeenUrls.add(fullUrl);
                     moviesOnPage++;
                 }
