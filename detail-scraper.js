@@ -208,11 +208,10 @@ if (qualities.length > 0) {
         const links = await extractFinalLinks(q.url);
         if (!firstDuration) firstDuration = links.duration;
 
-        const { error: insertError } = await supabase.from('media').insert({
+        await supabase.from('media').insert({
             movie_id: movieId,
             quality: q.label,
             file_size: links.size,
-            duration: links.duration,
             download_url_1: links.download,
             watch_url_1: links.stream
         });
