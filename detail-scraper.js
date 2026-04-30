@@ -201,6 +201,9 @@ async function scrapeMovieDetails(item) {
 
     // Process Qualities
     let firstDuration = null;
+    let status = 'done';
+    let errorMsg = null;
+
     if (qualities.length > 0) {
         for (const q of qualities) {
             console.log(`  - Quality: ${q.label}...`);
@@ -218,7 +221,9 @@ async function scrapeMovieDetails(item) {
             await delay(MOVIE_DELAY_MS);
         }
     } else {
-        console.log(`  - No qualities found.`);
+        console.log(`  - No qualities found. Marking as failed.`);
+        status = 'error';
+        errorMsg = 'No quality links found';
     }
 
     // Update movie with duration if found
@@ -226,8 +231,8 @@ async function scrapeMovieDetails(item) {
         await supabase.from('movies').update({ duration: firstDuration }).eq('id', movieId);
     }
 
-    await updateQueueStatus(item.id, 'done');
-    console.log(`  - Completed: ${movieDetails.movie_name || item.url}`);
+    await updateQueueStatus(item.id, status, errorMsg);
+    console.log(`  - Completed: ${movieDetails.movie_name || item.url} [Status: ${status}]`);
 }
 
 // --- Queue Management ---
