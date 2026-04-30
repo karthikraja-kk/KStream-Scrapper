@@ -178,19 +178,21 @@ async function scrapeMovieDetails(item) {
     } catch (err) {
         console.error(`  - Metadata Fetch Error: ${err.message}`);
     }
+// Save Movie (upsert)
+let movieId;
+const { data: movieRecord, error: movieError } = await supabase
+    .from('movies')
+    .upsert(movieDetails, { onConflict: 'movie_url' })
+    .select('id')
+    .single();
 
-    const { data: movieRecord, error: movieError } = await supabase
-        .from('movies')
-        .upsert(movieDetails, { onConflict: 'movie_url' })
-        .select('id')
-        .single();
-    
-    if (movieError) {
-        console.error(`  - DB Error (Movies): ${movieError.message}`);
-        await updateQueueStatus(item.id, 'error', movieError.message);
-        return;
-    }
-// Clear old media
+if (movieError) {
+    console.error(`  - DB Error (Movies): ${movieError.message}`);
+    await updateQueueStatus(item.id, 'error', movieError.message);
+    return;
+}
+
+movieId = movieRecord.id;
 const { error: deleteError } = await supabase.from('media').delete().eq('movie_id', movieId);
 if (deleteError) console.error(`  - FAILED to clear old media for ${movieId}: ${deleteError.message}`);
 
