@@ -1,135 +1,122 @@
 import * as cheerio from 'cheerio';
-import { supabase, getSourceUrl, checkRateLimit, startRefresh, finishRefresh, getFolderState, updateFolderState } from './lib/supabase.js';
+import { supabase, getSourceUrl } from './lib/supabase.js';
 import { fetchHtml, delay } from './lib/fetch.js';
 
-const BATCH_SIZE = 50;
-const BATCH_DELAY_MS = 15000;
-const FOLDER_DELAY_MS = 5000;
-const PAGE_DELAY_MS = 1500;
+// Configuration
+const TARGET_YEAR = process.env.TARGET_YEAR || '2026'; // Defaults to 2026 if not specified
 
-async function discoverFolders(baseUrl) {
+async function getYearFolders() {
+    const baseUrl = await getSourceUrl();
+    console.log(`Discovery: Fetching home page from ${baseUrl}`);
     const html = await fetchHtml(baseUrl);
     const $ = cheerio.load(html);
     const folders = [];
 
-    $('a').each((i, el) => {
-        const href = $(el).attr('href');
-        const text = $(el).text().trim();
-        if (href && /\/tamil-\d{4}/.test(href)) {
-            const match = href.match(/tamil-(\d{4})/);
-            if (match) {
-                folders.push({
-                    name: text || `Tamil ${match[1]}`,
-                    url: new URL(href, baseUrl).toString(),
-                    folderName: match[1]
-                });
+    $('div.f').each((i, el) => {
+        const link = $(el).find('a').first();
+        const href = link.attr('href');
+        const hasIcon = $(el).find('img[src*="folder.svg"]').length > 0;
+        
+        if (href && hasIcon) {
+            const name = link.text().trim();
+            const fullUrl = new URL(href, baseUrl).toString();
+            // Filter: Name must contain a year
+            if (/\d{4}/.test(name)) {
+                folders.push({ name, url: fullUrl });
             }
         }
     });
-
     return folders;
 }
 
-function getPriority(folder, currentYear) {
-    const year = parseInt(folder.folderName);
-    if (year === currentYear) return 1;
-    if (year === currentYear - 1) return 2;
-    return 3;
-}
+async function getMoviesInFolder(folderUrl) {
+    let allMovies = [];
+    let currentUrl = folderUrl;
+    let pageNum = 1;
+    const globalSeenUrls = new Set();
 
-async function discoverMoviesInFolder(folderUrl) {
-    const html = await fetchHtml(folderUrl);
-    const $ = cheerio.load(html);
-    const movies = [];
-
-    $('a').each((i, el) => {
-        const href = $(el).attr('href');
-        if (href && /-tamil-movie\/|-tamil-web-series\//.test(href)) {
-            try {
-                movies.push(new URL(href, folderUrl).toString());
-            } catch (e) {
-                console.log(`Skipping invalid href: ${href}`);
+    while (currentUrl) {
+        console.log(`  Fetching page ${pageNum}: ${currentUrl}`);
+        const html = await fetchHtml(currentUrl);
+        const $ = cheerio.load(html);
+        
+        let moviesOnPage = 0;
+        $('div.f').each((i, el) => {
+            const link = $(el).find('a').first();
+            const href = link.attr('href');
+            const hasIcon = $(el).find('img[src*="folder.svg"]').length > 0;
+            
+            if (href && hasIcon) {
+                const fullUrl = new URL(href, currentUrl).toString();
+                if (!globalSeenUrls.has(fullUrl)) {
+                    allMovies.push({ name: link.text().trim(), url: fullUrl });
+                    globalSeenUrls.add(fullUrl);
+                    moviesOnPage++;
+                }
             }
-        }
-    });
+        });
 
-    return movies;
-}
+        console.log(`  - Discovered ${moviesOnPage} unique movies on page ${pageNum}`);
 
-async function queueMovies(movies, folder, priority) {
-    if (movies.length === 0) return 0;
+        // Pagination: Find next page link in div.pagecontent
+        let nextPageUrl = null;
+        $('div.pagecontent a').each((i, el) => {
+            const text = $(el).text().trim();
+            const href = $(el).attr('href');
+            if ((text.toLowerCase().includes('next') || text === '»') && href && href !== '#' && href !== '') {
+                nextPageUrl = new URL(href, currentUrl).toString();
+                return false;
+            }
+        });
 
-    const queueData = movies.map(url => ({
-        url,
-        folder,
-        status: 'pending',
-        priority
-    }));
-
-    const { error } = await supabase
-        .from('scrape_queue')
-        .upsert(queueData, { onConflict: 'url', ignoreDuplicates: true });
-
-    if (error) console.error('Queue error:', error.message);
-    return movies.length;
-}
-
-async function crawlIndex() {
-    console.log('Starting Index Crawler...');
-
-    const isRateLimited = await checkRateLimit(15);
-    if (isRateLimited) {
-        console.log('Rate limited, skipping crawl.');
-        return;
+        if (!nextPageUrl || nextPageUrl === currentUrl) break;
+        currentUrl = nextPageUrl;
+        pageNum++;
+        await delay(1000); // Respectful delay between pages
     }
+    return allMovies;
+}
 
-    const triggerBy = process.env.TRIGGER_BY || 'scheduler';
-    await startRefresh(triggerBy);
+async function addToQueue(movies, folderName) {
+    console.log(`\nAdding ${movies.length} movies to scrape_queue...`);
+    let added = 0;
+    for (const movie of movies) {
+        const { error } = await supabase
+            .from('scrape_queue')
+            .upsert({ 
+                url: movie.url, 
+                folder: folderName,
+                status: 'pending',
+                priority: 1
+            }, { onConflict: 'url' });
+        
+        if (!error) added++;
+    }
+    console.log(`Successfully queued ${added} movies.`);
+}
 
+async function runIndexCrawler() {
     try {
-        const baseUrl = await getSourceUrl();
-        console.log(`Source: ${baseUrl}`);
-
-        const folders = await discoverFolders(baseUrl);
-        console.log(`Found ${folders.length} year folders`);
-
-        if (folders.length === 0) {
-            throw new Error('No folders found');
+        const folders = await getYearFolders();
+        
+        // Find the target year folder (restricted for testing)
+        const targetFolder = folders.find(f => f.name.includes(TARGET_YEAR));
+        
+        if (!targetFolder) {
+            console.error(`Error: Folder for year ${TARGET_YEAR} not found.`);
+            return;
         }
 
-        const currentYear = new Date().getFullYear();
-        folders.sort((a, b) => getPriority(a, currentYear) - getPriority(b, currentYear));
+        console.log(`\nProcessing target folder: ${targetFolder.name} (${targetFolder.url})`);
+        const movies = await getMoviesInFolder(targetFolder.url);
+        
+        console.log(`\nDiscovery Complete: Found total of ${movies.length} movies.`);
+        
+        await addToQueue(movies, targetFolder.name);
 
-        let totalQueued = 0;
-
-        for (const folder of folders) {
-            const priority = getPriority(folder, currentYear);
-            console.log(`[${folder.folderName}] Priority ${priority}...`);
-
-            const movies = await discoverMoviesInFolder(folder.url);
-            const movieCount = movies.length;
-            console.log(`[${folder.folderName}] Found ${movieCount} movies`);
-
-            if (movieCount === 0) continue;
-
-            await queueMovies(movies, folder.folderName, priority);
-            totalQueued += movieCount;
-
-            await updateFolderState(folder.folderName, movieCount);
-
-            if (totalQueued >= BATCH_SIZE) {
-                console.log(`Batch limit reached (${BATCH_SIZE}), pausing ${BATCH_DELAY_MS / 1000}s...`);
-                await delay(BATCH_DELAY_MS);
-                totalQueued = 0;
-            } else {
-                await delay(FOLDER_DELAY_MS);
-            }
-        }
-
-        console.log('Index Crawler finished. Ready for detail scraper.');
     } catch (err) {
-        console.error('Crawler Error:', err.message);
+        console.error('Crawler Execution Error:', err.message);
     }
 }
 
-crawlIndex();
+runIndexCrawler();

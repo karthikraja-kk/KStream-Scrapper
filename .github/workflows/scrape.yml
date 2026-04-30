@@ -5,14 +5,10 @@ on:
     - cron: '30 21 * * *'
   workflow_dispatch:
     inputs:
-      trigger:
-        description: 'Trigger source'
+      target_year:
+        description: 'Year folder to scrape (e.g., 2026, 2025)'
         required: true
-        default: 'user'
-        type: choice
-        options:
-          - user
-          - scheduler
+        default: '2026'
 
 jobs:
   scrape:
@@ -22,34 +18,21 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '20'
           cache: 'npm'
-          cache-dependency-path: package.json
 
       - name: Install dependencies
         run: npm install
 
-      - name: Run Crawl
+      - name: Run Index Crawler
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          TARGET_YEAR: ${{ github.event.inputs.target_year || '2026' }}
         run: node index-crawler.js
+
+      - name: Run Detail Scraper
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          TRIGGER_BY: ${{ github.event.inputs.trigger || 'scheduler' }}
-
-      - name: Run Scrape
-        run: node --max-old-space-size=2048 detail-scraper.js
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          TRIGGER_BY: ${{ github.event.inputs.trigger || 'scheduler' }}
-
-      - name: Check Results
-        run: |
-          COUNT=$(curl -s -H "apikey: ${{ secrets.SUPABASE_SERVICE_KEY }}" \
-            "${{ secrets.SUPABASE_URL }}/rest/v1/movies?select=count" \
-            -H "Count: exact" | grep -o '"count":[0-9]*' | grep -o '[0-9]*' || echo "0")
-          echo "Movies in database: $COUNT"
-          if [ "$COUNT" = "0" ]; then
-            echo "No movies found - workflow will fail"
-            exit 1
-          fi
+        run: node detail-scraper.js

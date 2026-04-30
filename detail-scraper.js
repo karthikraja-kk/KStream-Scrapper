@@ -1,46 +1,15 @@
 import * as cheerio from 'cheerio';
+import { supabase } from './lib/supabase.js';
 import { fetchHtml, delay } from './lib/fetch.js';
-import { supabase, getSourceUrl, startRefresh, finishRefresh } from './lib/supabase.js';
 import { cpus } from 'os';
-import { fork } from 'child_process';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
+// Configuration
 const BATCH_SIZE = 10;
-const MOVIE_DELAY_MS = 300;
-const NUM_WORKERS = Math.max(1, Math.min(cpus().length - 1, 4));
+const MOVIE_DELAY_MS = 1000;
+const NUM_WORKERS = Math.max(1, Math.min(4, cpus().length));
 
-// Check if running as worker
-const isWorker = process.env.WORKER_MODE === 'true';
-
-async function getQueueItems(limit = 50) {
-    const { data, error } = await supabase
-        .from('scrape_queue')
-        .select('*')
-        .eq('status', 'pending')
-        .order('priority', { ascending: true })
-        .order('queued_at', { ascending: true })
-        .limit(limit);
-
-    if (error) throw error;
-    return data || [];
-}
-
-async function updateQueueStatus(id, status, errorMsg = null) {
-    await supabase
-        .from('scrape_queue')
-        .update({
-            status,
-            error_msg: errorMsg,
-            processed_at: new Date().toISOString()
-        })
-        .eq('id', id);
-}
-
-function extractMovieDetails(html, url) {
+// --- STEP 5 Logic: Metadata ---
+function extractMetadata(html, movieUrl) {
     const $ = cheerio.load(html);
 
     let title = $('h1').first().text().trim();
@@ -50,8 +19,8 @@ function extractMovieDetails(html, url) {
     const yearMatch = title.match(/\((\d{4})\)/);
     const year = yearMatch ? parseInt(yearMatch[1]) : null;
 
-    const posterUrl = $('picture img').attr('src') || $('picture source').first().attr('srcset') || '';
-    const posterFullUrl = posterUrl.startsWith('http') ? posterUrl : `https://moviesda18.com${posterUrl}`;
+    const posterUrl = $('picture source').first().attr('srcset') || $('picture img').attr('src') || '';
+    const posterFullUrl = posterUrl ? (posterUrl.startsWith('http') ? posterUrl.split(' ')[0] : `https://moviesda19.com${posterUrl.split(' ')[0]}`) : null;
 
     let directorText = '';
     let castText = '';
@@ -59,480 +28,236 @@ function extractMovieDetails(html, url) {
     let ratingText = '';
     let languageText = '';
     let typeText = '';
-    let durationText = '';
 
     $('ul.movie-info li').each((i, el) => {
-        const strong = $(el).find('strong').text();
+        const strong = $(el).find('strong').text().toLowerCase();
         const span = $(el).find('span').text().trim();
-        if (strong.includes('Director')) directorText = span;
-        if (strong.includes('Starring')) castText = span;
-        if (strong.includes('Genres')) genreText = span;
-        if (strong.includes('Movie Rating')) ratingText = span;
-        if (strong.includes('Language')) languageText = span;
-        if (strong.includes('Quality')) typeText = span;
-        if (strong.includes('Run Time') || strong.includes('Duration')) durationText = span;
+        if (strong.includes('director')) directorText = span;
+        if (strong.includes('starring')) castText = span;
+        if (strong.includes('genres')) genreText = span;
+        if (strong.includes('movie rating')) ratingText = span.replace('/10', '');
+        if (strong.includes('language')) languageText = span;
+        if (strong.includes('quality')) typeText = span;
     });
 
-    if (!durationText) {
-        const bodyText = $('body').text();
-        const match = bodyText.match(/(\d+)\s*(?:min|minute|mins|hour|hr|hrs?)/i);
-        if (match) {
-            const num = parseInt(match[1]);
-            const unit = match[2].toLowerCase();
-            if (unit.startsWith('h')) {
-                durationText = num + 'h';
-            } else {
-                durationText = num + 'm';
-            }
-        }
-    }
-
-    const synopsisText = $('.movie-synopsis').text().replace(/Synopsis:/i, '').trim();
-    const synopsis = synopsisText || null;
-
-    const director = directorText ? [directorText] : [];
-    const cast = castText ? castText.split(/[,|&]/).map(c => c.trim()).filter(c => c) : [];
-    const genres = genreText ? genreText.split(',').map(g => g.trim()).filter(g => g) : [];
-    const rating = ratingText ? ratingText.replace('/10', '').trim() : '';
-    const poster = posterFullUrl || null;
+    const synopsis = $('.movie-synopsis').text().replace(/Synopsis:/i, '').trim();
 
     return {
-        movie_url: url,
-        movie_name: (title.replace(/\s*\(\d{4}\)/, '').replace(/\s+Tamil\s*Movie.*$/i, '') || null),
+        movie_url: movieUrl,
+        movie_name: title.replace(/\s*\(\d{4}\)/, '').replace(/\s+Tamil\s*Movie.*$/i, '').trim(),
         year,
-        duration: durationText || null,
-        synopsis,
-        director: director.length > 0 ? director : null,
-        cast_members: cast.length > 0 ? cast : null,
-        genres: genres.length > 0 ? genres : null,
+        synopsis: synopsis || null,
+        director: directorText ? [directorText] : null,
+        cast_members: castText ? castText.split(/[,|&]/).map(c => c.trim()).filter(c => c) : null,
+        genres: genreText ? genreText.split(',').map(g => g.trim()).filter(g => g) : null,
         type: typeText || null,
         language: languageText || null,
-        rating: rating || null,
-        poster_url: poster
+        rating: ratingText || null,
+        poster_url: posterFullUrl
     };
 }
 
-async function findQualityLinks(html, baseUrl) {
+// --- Helper: Parse File Size ---
+function parseSize(text) {
+    const match = text.match(/([\d.]+)\s*(MB|GB)/i);
+    if (!match) return 0;
+    const value = parseFloat(match[1]);
+    return match[2].toUpperCase() === 'GB' ? value * 1024 : value;
+}
+
+// --- STEP 12/13/14 Logic: Links & Stream ---
+async function extractFinalLinks(qualityPageUrl) {
+    const html = await fetchHtml(qualityPageUrl);
     const $ = cheerio.load(html);
-    let qualityLinks = [];
-    const seenQualities = new Set();
+    
+    let largestPage = null;
+    let maxMB = -1;
 
-    const getQualityFromText = (text) => {
-        text = text.toLowerCase();
-        let q = null;
-        if (text.includes('1080p')) q = '1080p';
-        else if (text.includes('720p')) q = '720p';
-        else if (text.includes('480p')) q = '480p';
-        else if (text.includes('360p')) q = '360p';
-        else if (text.includes('hd')) q = '720p';
-        else if (text.includes('original')) q = 'Original';
-        
-        if (q && text.includes('hevc')) q += ' (HEVC)';
-        return q;
-    };
-
-    // 1. Try to find quality folders directly on the page
-    $('div.f').each((i, el) => {
-        const link = $(el).find('a').first();
-        const href = link.attr('href');
-        const text = link.text().trim();
-        if (href) {
-            let quality = getQualityFromText(text);
-            if (quality && quality !== 'Original') {
-                if (!seenQualities.has(quality)) {
-                    qualityLinks.push({ quality, url: new URL(href, baseUrl).toString() });
-                    seenQualities.add(quality);
-                }
-            }
+    // Step 9: Selection of Largest File
+    $('div.folder').each((i, el) => {
+        const $f = $(el);
+        const link = $f.find('a[href*="/download/"]').first();
+        let sizeMB = 0;
+        $f.find('li').each((j, li) => {
+            if ($(li).text().includes('File Size:')) sizeMB = parseSize($(li).text());
+        });
+        if (link.attr('href') && sizeMB > maxMB) {
+            maxMB = sizeMB;
+            largestPage = new URL(link.attr('href'), qualityPageUrl).toString();
         }
     });
 
-    // 2. If no explicit qualities (other than Original) found, check for the "(Original)" folder to find more
-    if (qualityLinks.length === 0) {
-        let originalPageUrl = '';
-        $('div.f').each((i, el) => {
-            const link = $(el).find('a').first();
-            const href = link.attr('href');
-            const text = link.text().trim().toLowerCase();
-            if (href && text.includes('original')) {
-                originalPageUrl = new URL(href, baseUrl).toString();
-                return false;
-            }
-        });
+    if (!largestPage) return { download: null, stream: null, duration: null, size: null };
 
-        if (originalPageUrl) {
-            try {
-                const originalHtml = await fetchHtml(originalPageUrl);
-                const $orig = cheerio.load(originalHtml);
-                $orig('div.f').each((i, el) => {
-                    const link = $orig(el).find('a').first();
-                    const href = link.attr('href');
-                    const text = link.text().trim();
-                    if (href) {
-                        let quality = getQualityFromText(text);
-                        if (quality) {
-                            if (!seenQualities.has(quality)) {
-                                qualityLinks.push({ quality, url: new URL(href, originalPageUrl).toString() });
-                                seenQualities.add(quality);
-                            }
-                        }
-                    }
-                });
-            } catch (e) {
-                console.log('Error fetching original page:', e.message);
-            }
-        }
-    }
-
-    // 3. Fallback: If still empty, check for any folder that might be a quality link
-    if (qualityLinks.length === 0) {
-        $('div.f').each((i, el) => {
-            const link = $(el).find('a').first();
-            const href = link.attr('href');
-            const text = link.text().trim();
-            if (href && (text.includes('movie') || text.includes('hd') || text.includes('original'))) {
-                let quality = getQualityFromText(text) || 'Unknown';
-                if (!seenQualities.has(quality)) {
-                    qualityLinks.push({ quality, url: new URL(href, baseUrl).toString() });
-                    seenQualities.add(quality);
-                    return false; // Just take the first one as fallback
-                }
-            }
-        });
-    }
-
-    return qualityLinks;
-}
-
-async function getDownloadLinks(qualityPageUrl) {
-    if (!qualityPageUrl) return { download_url_1: '', download_url_2: '', watch_url_1: '', watch_url_2: '', file_size: null, duration: null };
-
+    // Step 12: Redirect Chain
     try {
-        const html = await fetchHtml(qualityPageUrl);
-        const $ = cheerio.load(html);
+        const html1 = await fetchHtml(largestPage);
+        const $1 = cheerio.load(html1);
 
-        let initialDownloadPageUrl = '';
-        let fileSize = null, duration = null;
-
-        // Find link to download details page
-        $('a[href*="/download/"]').each((i, el) => {
-            const href = $(el).attr('href');
-            if (href && !initialDownloadPageUrl) initialDownloadPageUrl = new URL(href, qualityPageUrl).toString();
-        });
-
-        if (!initialDownloadPageUrl) {
-            $('a[href*="/dl/"]').each((i, el) => {
-                const href = $(el).attr('href');
-                if (href && !initialDownloadPageUrl) initialDownloadPageUrl = new URL(href, qualityPageUrl).toString();
-            });
-        }
-
-        if (!initialDownloadPageUrl) return { download_url_1: '', download_url_2: '', watch_url_1: '', watch_url_2: '', file_size: null, duration: null };
-
-        // Fetch download details page
-        const dlPageHtml = await fetchHtml(initialDownloadPageUrl);
-        const $dl = cheerio.load(dlPageHtml);
-
-        // Extract metadata
-        $dl('.details, li, div').each((i, el) => {
+        // Step 11: Duration
+        let duration = null;
+        $1('.details, li, div').each((i, el) => {
             const text = $(el).text();
-            if (text.includes('File Size:')) {
-                const match = text.match(/File Size:\s*(.+)/i);
-                if (match) fileSize = match[1].trim();
-            }
             if (text.includes('Duration:')) {
-                const match = text.match(/Duration:\s*(.+)/i);
-                if (match) duration = match[1].trim();
+                const m = text.match(/Duration:\s*(.+)/i);
+                if (m) duration = m[1].trim();
             }
         });
 
-        const jsonLd = $dl('script[type="application/ld+json"]').html();
-        if (jsonLd) {
-            try {
-                const data = JSON.parse(jsonLd);
-                if (data.duration) {
-                    duration = data.duration.replace('PT', '').toLowerCase();
-                }
-            } catch (e) {}
+        const srv1Node = $1('.dlink a:contains("Server 1")');
+        if (srv1Node.length === 0) return { download: null, stream: null, duration, size: maxMB };
+        const srv1Url = new URL(srv1Node.attr('href'), largestPage).toString();
+        
+        const html2 = await fetchHtml(srv1Url);
+        const $2 = cheerio.load(html2);
+        const finalRedirectNode = $2('.dlink a:contains("Download Server 1")');
+        if (finalRedirectNode.length === 0) return { download: null, stream: null, duration, size: maxMB };
+        const finalRedirectUrl = new URL(finalRedirectNode.attr('href'), srv1Url).toString();
+
+        const html3 = await fetchHtml(finalRedirectUrl);
+        const $3 = cheerio.load(html3);
+        
+        // Final Download Link
+        const dl = $3('.dlink a:contains("Download Server 1")').attr('href');
+
+        // Step 13/14: Watch Online Link -> Stream Link
+        const watchLinkNode = $3('.dlink a:contains("Watch Online Server 1")');
+        let stream = null;
+        if (watchLinkNode.length > 0) {
+            const watchUrl = new URL(watchLinkNode.attr('href'), finalRedirectUrl).toString();
+            const watchHtml = await fetchHtml(watchUrl);
+            const $w = cheerio.load(watchHtml);
+            stream = $w('source').attr('src') || $w('video').attr('src');
         }
 
-        let movieServer1PageUrl = '', movieServer2PageUrl = '';
-        $dl('.dlink a').each((i, el) => {
-            const href = $(el).attr('href');
-            const text = $(el).text().toLowerCase();
-            if (text.includes('server 1') && href) movieServer1PageUrl = new URL(href, initialDownloadPageUrl).toString();
-            if (text.includes('server 2') && href) movieServer2PageUrl = new URL(href, initialDownloadPageUrl).toString();
-        });
-
-        let finalDownloadUrl1 = '', finalWatchUrl1 = '';
-        let finalDownloadUrl2 = '', finalWatchUrl2 = '';
-
-        // Server 1 Chain
-        if (movieServer1PageUrl) {
-            try {
-                const srv1Html = await fetchHtml(movieServer1PageUrl);
-                const $srv1 = cheerio.load(srv1Html);
-
-                let dlSrv1RedirectUrl = '', watchSrv1PageUrl = '';
-                $srv1('.dlink a').each((i, el) => {
-                    const href = $(el).attr('href');
-                    const text = $(el).text().toLowerCase();
-                    if (text.includes('download server 1') && href) dlSrv1RedirectUrl = new URL(href, movieServer1PageUrl).toString();
-                    if (text.includes('watch online server 1') && href) watchSrv1PageUrl = new URL(href, movieServer1PageUrl).toString();
-                });
-
-                if (dlSrv1RedirectUrl) {
-                    const srv1FinalHtml = await fetchHtml(dlSrv1RedirectUrl);
-                    const $srv1F = cheerio.load(srv1FinalHtml);
-                    $srv1F('.dlink a').each((i, el) => {
-                        const href = $(el).attr('href');
-                        const text = $(el).text().toLowerCase();
-                        if (text.includes('download server 1') && href) finalDownloadUrl1 = href;
-                    });
-                }
-
-                if (watchSrv1PageUrl) {
-                    const watch1Html = await fetchHtml(watchSrv1PageUrl);
-                    const $w1 = cheerio.load(watch1Html);
-                    const src = $w1('source[src]').attr('src');
-                    if (src) finalWatchUrl1 = src;
-                }
-            } catch (e) {
-                console.log('Error in Server 1 chain:', e.message);
-            }
-        }
-
-        // Server 2 Chain
-        if (movieServer2PageUrl) {
-            try {
-                const srv2Html = await fetchHtml(movieServer2PageUrl);
-                const $srv2 = cheerio.load(srv2Html);
-
-                let dlSrv2RedirectUrl = '', watchSrv2PageUrl = '';
-                $srv2('.dlink a').each((i, el) => {
-                    const href = $(el).attr('href');
-                    const text = $(el).text().toLowerCase();
-                    if (text.includes('download server 2') && href) dlSrv2RedirectUrl = new URL(href, movieServer2PageUrl).toString();
-                    if (text.includes('watch online server 2') && href) watchSrv2PageUrl = new URL(href, movieServer2PageUrl).toString();
-                });
-
-                if (dlSrv2RedirectUrl) {
-                    const srv2FinalHtml = await fetchHtml(dlSrv2RedirectUrl);
-                    const $srv2F = cheerio.load(srv2FinalHtml);
-                    $srv2F('.dlink a').each((i, el) => {
-                        const href = $(el).attr('href');
-                        const text = $(el).text().toLowerCase();
-                        if (text.includes('download server 2') && href) finalDownloadUrl2 = href;
-                    });
-                }
-
-                if (watchSrv2PageUrl) {
-                    const watch2Html = await fetchHtml(watchSrv2PageUrl);
-                    const $w2 = cheerio.load(watch2Html);
-                    const src = $w2('source[src]').attr('src');
-                    if (src) finalWatchUrl2 = src;
-                }
-            } catch (e) {
-                console.log('Error in Server 2 chain:', e.message);
-            }
-        }
-
-        return { 
-            download_url_1: finalDownloadUrl1 || initialDownloadPageUrl, 
-            download_url_2: finalDownloadUrl2, 
-            watch_url_1: finalWatchUrl1, 
-            watch_url_2: finalWatchUrl2, 
-            file_size: fileSize, 
-            duration: duration 
-        };
-    } catch (e) {
-        console.log('Error in getDownloadLinks:', e.message);
-        return { download_url_1: '', download_url_2: '', watch_url_1: '', watch_url_2: '', file_size: null, duration: null };
+        return { download: dl, stream, duration, size: `${maxMB.toFixed(2)} MB` };
+    } catch (err) {
+        console.error(`  - Chain Error for ${qualityPageUrl}: ${err.message}`);
+        return { download: null, stream: null, duration: null, size: `${maxMB.toFixed(2)} MB` };
     }
 }
 
 async function scrapeMovieDetails(item) {
-    console.log(`Scraping: ${item.url}`);
+    console.log(`\nScraping: ${item.url}`);
     const html = await fetchHtml(item.url);
-    const movieDetails = extractMovieDetails(html, item.url);
-    console.log(`  Extracted: name=${movieDetails.movie_name}, year=${movieDetails.year}, duration=${movieDetails.duration}, type=${movieDetails.type}`);
+    const movieDetails = extractMetadata(html, item.url);
+    
+    // Step 6: Find Qualities (using folder icons)
+    const $ = cheerio.load(html);
+    let qualitySelectionUrl = null;
+    $('div.f a').each((i, el) => {
+        if ($(el).text().toLowerCase().includes('(original)')) {
+            qualitySelectionUrl = new URL($(el).attr('href'), item.url).toString();
+            return false;
+        }
+    });
 
-    const { data: existingMovie } = await supabase
-        .from('movies')
-        .select('id, duration')
-        .eq('movie_url', item.url)
-        .single();
+    if (!qualitySelectionUrl) {
+        console.log(`  - No quality selection folder found for ${movieDetails.movie_name}`);
+        await updateQueueStatus(item.id, 'skipped', 'No quality selection folder');
+        return movieDetails.movie_name;
+    }
 
+    // Step 7: Get available qualities
+    const qHtml = await fetchHtml(qualitySelectionUrl);
+    const $q = cheerio.load(qHtml);
+    const qualities = [];
+    $q('div.f a').each((i, el) => {
+        const name = $q(el).text().trim();
+        const match = name.match(/\(([^)]+)\)/);
+        if (match) {
+            qualities.push({ 
+                label: match[1], 
+                url: new URL($q(el).attr('href'), qualitySelectionUrl).toString() 
+            });
+        }
+    });
+
+    // Save Movie first
+    const { data: existingMovie } = await supabase.from('movies').select('id').eq('movie_url', item.url).single();
     let movieId;
-    const qualityLinks = await findQualityLinks(html, item.url);
-
     if (existingMovie) {
         movieId = existingMovie.id;
-        // If movie exists but has no duration, try to get it from first quality link
-        if (!movieDetails.duration && qualityLinks.length > 0) {
-            const dl = await getDownloadLinks(qualityLinks[0].url);
-            if (dl.duration) movieDetails.duration = dl.duration;
-        }
         await supabase.from('movies').update(movieDetails).eq('id', movieId);
     } else {
         const { data: newMovie, error } = await supabase.from('movies').insert(movieDetails).select('id').single();
         if (error) throw error;
         movieId = newMovie.id;
-
-        // Try to get duration from first quality link for new movie if not found on movie page
-        if (!movieDetails.duration && qualityLinks.length > 0) {
-            const dl = await getDownloadLinks(qualityLinks[0].url);
-            if (dl.duration) {
-                movieDetails.duration = dl.duration;
-                await supabase.from('movies').update({ duration: dl.duration }).eq('id', movieId);
-            }
-        }
     }
 
+    // Clear old media
     await supabase.from('media').delete().eq('movie_id', movieId);
 
-    for (const q of qualityLinks) {
-        const downloadLinks = await getDownloadLinks(q.url);
+    // Process Each Quality
+    let firstDuration = null;
+    for (const q of qualities) {
+        console.log(`  - Quality: ${q.label}...`);
+        const links = await extractFinalLinks(q.url);
+        
+        if (!firstDuration) firstDuration = links.duration;
+
         await supabase.from('media').insert({
             movie_id: movieId,
-            quality: q.quality,
-            file_size: downloadLinks.file_size || null,
-            duration: downloadLinks.duration || movieDetails.duration || null,
-            download_url_1: downloadLinks.download_url_1 || q.url,
-            download_url_2: downloadLinks.download_url_2 || null,
-            watch_url_1: downloadLinks.watch_url_1 || null,
-            watch_url_2: downloadLinks.watch_url_2 || null
+            quality: q.label,
+            file_size: links.size,
+            duration: links.duration,
+            download_url_1: links.download,
+            watch_url_1: links.stream
         });
         await delay(MOVIE_DELAY_MS);
     }
 
+    // Update movie with duration if we found one
+    if (firstDuration) {
+        await supabase.from('movies').update({ duration: firstDuration }).eq('id', movieId);
+    }
+
     await updateQueueStatus(item.id, 'done');
+    console.log(`  - Completed: ${movieDetails.movie_name}`);
     return movieDetails.movie_name;
 }
 
-// Worker function - processes a batch of items
-async function runWorker(items, workerId) {
-    console.log(`[${workerId}] Starting with ${items.length} items`);
+// --- Queue Management ---
+async function getQueueItems(limit) {
+    const { data, error } = await supabase
+        .from('scrape_queue')
+        .select('*')
+        .eq('status', 'pending')
+        .order('priority', { ascending: false })
+        .limit(limit);
     
-    let processed = 0;
-    let errors = 0;
-    
-    for (const item of items) {
-        try {
-            const title = await scrapeMovieDetails(item);
-            console.log(`[${workerId}] Done: ${title}`);
-            processed++;
-        } catch (err) {
-            console.error(`[${workerId}] Error: ${item.url} - ${err.message}`);
-            await updateQueueStatus(item.id, 'error', err.message);
-            errors++;
-        }
-    }
-    
-    console.log(`[${workerId}] Completed: ${processed} success, ${errors} errors`);
-    return { processed, errors };
+    if (error) throw error;
+    return data;
 }
 
-// Main function - orchestrates workers
+async function updateQueueStatus(id, status, errorMsg = null) {
+    await supabase
+        .from('scrape_queue')
+        .update({ status, error_message: errorMsg, last_attempt_at: new Date().toISOString() })
+        .eq('id', id);
+}
+
+// --- Orchestration ---
 async function runDistributed() {
-    console.log('Starting Distributed Scraper...');
-    console.log(`Workers: ${NUM_WORKERS}, Batch size: ${BATCH_SIZE}`);
-    
-    let totalProcessed = 0;
-    let batchNum = 0;
+    console.log(`Starting Scraper Workers (${NUM_WORKERS})...`);
     
     while (true) {
-        const queueItems = await getQueueItems(BATCH_SIZE * NUM_WORKERS);
-        if (queueItems.length === 0) {
-            console.log('No more pending items.');
+        const items = await getQueueItems(NUM_WORKERS);
+        if (items.length === 0) {
+            console.log('No more pending items in queue.');
             break;
         }
+
+        // Parallel processing with batch
+        await Promise.all(items.map(item => 
+            scrapeMovieDetails(item).catch(err => {
+                console.error(`Error processing ${item.url}: ${err.message}`);
+                return updateQueueStatus(item.id, 'error', err.message);
+            })
+        ));
         
-        batchNum++;
-        console.log(`\n=== Batch ${batchNum}: ${queueItems.length} items ===`);
-        
-        // Distribute to workers
-        const itemsPerWorker = Math.ceil(queueItems.length / NUM_WORKERS);
-        const workerPromises = [];
-        
-        for (let w = 0; w < NUM_WORKERS; w++) {
-            const start = w * itemsPerWorker;
-            const end = Math.min(start + itemsPerWorker, queueItems.length);
-            const workerItems = queueItems.slice(start, end);
-            
-            if (workerItems.length === 0) continue;
-            
-            const workerPromise = (async () => {
-                const worker = fork(join(__dirname, 'detail-scraper.js'), [], {
-                    env: { 
-                        ...process.env, 
-                        WORKER_MODE: 'true', 
-                        WORKER_ID: `worker-${w}`,
-                        WORKER_ITEMS: JSON.stringify(workerItems)
-                    },
-                    stdio: ['pipe', 'pipe', 'pipe', 'ipc']
-                });
-                
-                return new Promise((resolve) => {
-                    worker.on('message', (msg) => {
-                        totalProcessed += msg.processed;
-                    });
-                    
-                    worker.on('exit', (code) => {
-                        if (code === 0) {
-                            console.log(`[worker-${w}] Completed batch`);
-                        } else {
-                            console.error(`[worker-${w}] Failed with code ${code}`);
-                        }
-                        resolve(code);
-                    });
-                });
-            })();
-            
-            workerPromises.push(workerPromise);
-        }
-        
-        await Promise.all(workerPromises);
-        
-        // Memory cleanup
-        if (global.gc) global.gc();
-        
-        if (queueItems.length < BATCH_SIZE * NUM_WORKERS) {
-            console.log('All items processed.');
-            break;
-        }
-        
-        await delay(5000);
+        await delay(2000); // Batch delay
     }
-    
-    console.log(`\n✓ Total processed: ${totalProcessed}`);
-    await finishRefresh('completed');
 }
 
-// Entry point
-if (isWorker) {
-    const workerId = process.env.WORKER_ID || 'worker';
-    const workerItems = JSON.parse(process.env.WORKER_ITEMS || '[]');
-    runWorker(workerItems, workerId).then((result) => {
-        if (process.send) {
-            process.send(result);
-        }
-        setTimeout(() => process.exit(0), 1000);
-    });
-} else if (process.argv[2]) {
-    // Single URL test mode: node detail-scraper.js <url>
-    const testUrl = process.argv[2];
-    console.log(`Testing single URL: ${testUrl}`);
-    const testItem = { id: 0, url: testUrl, folder: 'test', priority: 1 };
-    scrapeMovieDetails(testItem)
-        .then((title) => {
-            console.log(`✓ Test completed: ${title}`);
-            process.exit(0);
-        })
-        .catch((err) => {
-            console.error(`✗ Test failed: ${err.message}`);
-            process.exit(1);
-        });
-} else {
-    runDistributed().catch(console.error);
-}
+runDistributed().catch(console.error);
