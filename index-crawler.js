@@ -74,8 +74,10 @@ async function getMoviesInFolder(folderUrl) {
             }
         });
 
-        if (!nextPageUrl || nextPageUrl === currentUrl) break;
-        currentUrl = nextPageUrl;
+        // Disable pagination for testing: Stop after first page
+        // if (!nextPageUrl || nextPageUrl === currentUrl) break;
+        // currentUrl = nextPageUrl;
+        currentUrl = null; // Forces stop after first page
         pageNum++;
         await delay(1000);
     }
