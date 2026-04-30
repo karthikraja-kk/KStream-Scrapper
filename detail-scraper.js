@@ -4,8 +4,9 @@ import { fetchHtml, delay } from './lib/fetch.js';
 import { cpus } from 'os';
 
 // Configuration
-const MOVIE_DELAY_MS = 1000;
-const NUM_WORKERS = Math.max(1, Math.min(4, cpus().length));
+const NUM_WORKERS = 1; // Reduced to 1 to avoid IP blocking
+
+import { randomDelay } from './lib/fetch.js';
 
 // --- STEP 5 Logic: Metadata ---
 function extractMetadata(html, movieUrl) {
@@ -227,9 +228,8 @@ async function scrapeMovieDetails(item) {
             stream1: links.stream1,
             stream2: links.stream2
         });
-        await delay(MOVIE_DELAY_MS);
-    }
-
+        await randomDelay(3000, 7000);
+        }
     if (totalValidLinks === 0) {
         console.log(`  - FAILURE: No valid links found. Not saving to DB.`);
         await updateQueueStatus(item.id, 'error', 'No valid download/stream links found');
