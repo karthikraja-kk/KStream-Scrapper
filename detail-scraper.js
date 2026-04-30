@@ -86,9 +86,9 @@ async function extractFinalLinks(qualityPageUrl) {
             }
         });
 
-        if (!largestPage) return { download: null, stream: null, duration: null, size: null };
+        if (!largestPage) return { download1: null, stream1: null, download2: null, stream2: null, duration: null, size: null };
 
-        // Step 12: Redirect Chain
+        // Fetch the initial download details page
         const html1 = await fetchHtml(largestPage);
         const $1 = cheerio.load(html1);
 
@@ -102,40 +102,63 @@ async function extractFinalLinks(qualityPageUrl) {
             }
         });
 
-        const srv1Node = $1('.dlink a:contains("Server 1")');
-        if (srv1Node.length === 0) return { download: null, stream: null, duration, size: `${maxMB.toFixed(2)} MB` };
-        const srv1Url = new URL(srv1Node.attr('href'), largestPage).toString();
-        
-        const html2 = await fetchHtml(srv1Url);
-        const $2 = cheerio.load(html2);
-        const finalRedirectNode = $2('.dlink a:contains("Download Server 1")');
-        if (finalRedirectNode.length === 0) return { download: null, stream: null, duration, size: `${maxMB.toFixed(2)} MB` };
-        const finalRedirectUrl = new URL(finalRedirectNode.attr('href'), srv1Url).toString();
+        const results = {
+            download1: null, stream1: null,
+            download2: null, stream2: null,
+            duration,
+            size: `${maxMB.toFixed(2)} MB`
+        };
 
-        const html3 = await fetchHtml(finalRedirectUrl);
-        const $3 = cheerio.load(html3);
-        
-        // Final Download Link
-        const dl = $3('.dlink a:contains("Download Server 1")').attr('href');
-
-        // Step 13/14: Watch Online Link -> Stream Link
-        const watchLinkNode = $3('.dlink a:contains("Watch Online Server 1")');
-        let stream = null;
-        if (watchLinkNode.length > 0) {
+        // --- Helper: Follow Redirect Chain ---
+        async function followChain(serverNum) {
             try {
-                const watchUrl = new URL(watchLinkNode.attr('href'), finalRedirectUrl).toString();
-                const watchHtml = await fetchHtml(watchUrl);
-                const $w = cheerio.load(watchHtml);
-                stream = $w('source').attr('src') || $w('video').attr('src');
-            } catch (e) {
-                console.error(`  - Stream Fetch Error: ${e.message}`);
+                const srvNode = $1(`.dlink a:contains("Server ${serverNum}")`);
+                if (srvNode.length === 0) return { dl: null, watch: null };
+
+                const srvUrl = new URL(srvNode.attr('href'), largestPage).toString();
+                const html2 = await fetchHtml(srvUrl);
+                const $2 = cheerio.load(html2);
+                
+                const finalRedirectNode = $2(`.dlink a:contains("Download Server ${serverNum}")`);
+                if (finalRedirectNode.length === 0) return { dl: null, watch: null };
+
+                const finalRedirectUrl = new URL(finalRedirectNode.attr('href'), srvUrl).toString();
+                const html3 = await fetchHtml(finalRedirectUrl);
+                const $3 = cheerio.load(html3);
+                
+                // Final Download Link
+                const dl = $3(`.dlink a:contains("Download Server ${serverNum}")`).attr('href');
+
+                // Watch Link
+                let stream = null;
+                const watchLinkNode = $3(`.dlink a:contains("Watch Online Server ${serverNum}")`);
+                if (watchLinkNode.length > 0) {
+                    const watchUrl = new URL(watchLinkNode.attr('href'), finalRedirectUrl).toString();
+                    const watchHtml = await fetchHtml(watchUrl);
+                    const $w = cheerio.load(watchHtml);
+                    stream = $w('source').attr('src') || $w('video').attr('src');
+                }
+
+                return { dl, watch: stream };
+            } catch (err) {
+                console.error(`  - Chain Error (Server ${serverNum}): ${err.message}`);
+                return { dl: null, watch: null };
             }
         }
 
-        return { download: dl, stream, duration, size: `${maxMB.toFixed(2)} MB` };
+        // Process both servers
+        const srv1 = await followChain(1);
+        results.download1 = srv1.dl;
+        results.stream1 = srv1.watch;
+
+        const srv2 = await followChain(2);
+        results.download2 = srv2.dl;
+        results.stream2 = srv2.watch;
+
+        return results;
     } catch (err) {
         console.error(`  - Final Link Error for ${qualityPageUrl}: ${err.message}`);
-        return { download: null, stream: null, duration: null, size: null };
+        return { download1: null, stream1: null, download2: null, stream2: null, duration: null, size: null };
     }
 }
 
@@ -205,12 +228,14 @@ async function scrapeMovieDetails(item) {
             const links = await extractFinalLinks(q.url);
             if (!firstDuration) firstDuration = links.duration;
 
-            const { error: insertError } = await supabase.from('media').insert({
+            await supabase.from('media').insert({
                 movie_id: movieId,
                 quality: q.label,
                 file_size: links.size,
-                download_url_1: links.download,
-                watch_url_1: links.stream
+                download_url_1: links.download1,
+                download_url_2: links.download2,
+                watch_url_1: links.stream1,
+                watch_url_2: links.stream2
             });
 
             if (insertError) {

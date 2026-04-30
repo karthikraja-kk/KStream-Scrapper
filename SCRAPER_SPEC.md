@@ -78,10 +78,11 @@ This document details the step-by-step logic for the KStream scraper and how the
 ### Phase 4: Final URLs
 *   **Step 12: Follow Server Chains**
     *   Target: Initial Server 1 & 2 URLs.
-    *   Logic:
+    *   Logic: (Repeat for both Server 1 and Server 2)
         1.  Visit Initial Server Page.
         2.  Click "Download Server X".
         3.  Visit Redirect Page.
         4.  Click "Download Server X" again.
         5.  Visit Final Page.
         6.  Click "Download Server X" for the final direct .mp4 URL.
+        7.  Click "Watch Online Server X" for the final streaming URL.
