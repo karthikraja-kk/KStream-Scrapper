@@ -178,57 +178,54 @@ async function scrapeMovieDetails(item) {
     } catch (err) {
         console.error(`  - Metadata Fetch Error: ${err.message}`);
     }
-// Save Movie (upsert)
-let movieId;
-const { data: movieRecord, error: movieError } = await supabase
-    .from('movies')
-    .upsert(movieDetails, { onConflict: 'movie_url' })
-    .select('id')
-    .single();
 
-if (movieError) {
-    console.error(`  - DB Error (Movies): ${movieError.message}`);
-    await updateQueueStatus(item.id, 'error', movieError.message);
-    return;
-}
-
-movieId = movieRecord.id;
-const { error: deleteError } = await supabase.from('media').delete().eq('movie_id', movieId);
-if (deleteError) console.error(`  - FAILED to clear old media for ${movieId}: ${deleteError.message}`);
-
-// Process Qualities
-let firstDuration = null;
-let status = 'done';
-let errorMsg = null;
-let mediaCount = 0;
-
-if (qualities.length > 0) {
-    for (const q of qualities) {
-        console.log(`  - Quality: ${q.label}...`);
-        const links = await extractFinalLinks(q.url);
-        if (!firstDuration) firstDuration = links.duration;
-
-        await supabase.from('media').insert({
-            movie_id: movieId,
-            quality: q.label,
-            file_size: links.size,
-            download_url_1: links.download,
-            watch_url_1: links.stream
-        });
-
-        if (insertError) {
-            console.error(`  - FAILED to insert media (${q.label}): ${insertError.message}`);
-        } else {
-            mediaCount++;
-        }
-        await delay(MOVIE_DELAY_MS);
+    const { data: movieRecord, error: movieError } = await supabase
+        .from('movies')
+        .upsert(movieDetails, { onConflict: 'movie_url' })
+        .select('id')
+        .single();
+    
+    if (movieError) {
+        console.error(`  - DB Error (Movies): ${movieError.message}`);
+        await updateQueueStatus(item.id, 'error', movieError.message);
+        return;
     }
-    console.log(`  - Successfully inserted ${mediaCount} media records.`);
-} else {
-    console.log(`  - No qualities found. Marking as failed.`);
-    status = 'error';
-    errorMsg = 'No quality links found';
-}
+
+    const movieId = movieRecord.id;
+    await supabase.from('media').delete().eq('movie_id', movieId);
+
+    let firstDuration = null;
+    let status = 'done';
+    let errorMsg = null;
+    let mediaCount = 0;
+
+    if (qualities.length > 0) {
+        for (const q of qualities) {
+            console.log(`  - Quality: ${q.label}...`);
+            const links = await extractFinalLinks(q.url);
+            if (!firstDuration) firstDuration = links.duration;
+
+            const { error: insertError } = await supabase.from('media').insert({
+                movie_id: movieId,
+                quality: q.label,
+                file_size: links.size,
+                download_url_1: links.download,
+                watch_url_1: links.stream
+            });
+
+            if (insertError) {
+                console.error(`  - FAILED to insert media (${q.label}): ${insertError.message}`);
+            } else {
+                mediaCount++;
+            }
+            await delay(MOVIE_DELAY_MS);
+        }
+        console.log(`  - Successfully inserted ${mediaCount} media records.`);
+    } else {
+        console.log(`  - No qualities found. Marking as failed.`);
+        status = 'error';
+        errorMsg = 'No quality links found';
+    }
 
     if (firstDuration) {
         await supabase.from('movies').update({ duration: firstDuration }).eq('id', movieId);
@@ -254,8 +251,8 @@ async function updateQueueStatus(id, status, errorMsg = null) {
         .from('scrape_queue')
         .update({ 
             status, 
-            error_msg: errorMsg, // Corrected from error_message
-            processed_at: new Date().toISOString() // Using existing processed_at instead of last_attempt_at
+            error_msg: errorMsg, 
+            processed_at: new Date().toISOString() 
         })
         .eq('id', id);
     
