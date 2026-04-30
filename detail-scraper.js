@@ -244,8 +244,8 @@ async function updateQueueStatus(id, status, errorMsg = null) {
         .from('scrape_queue')
         .update({ 
             status, 
-            error_message: errorMsg, 
-            last_attempt_at: new Date().toISOString() 
+            error_msg: errorMsg, // Corrected from error_message
+            processed_at: new Date().toISOString() // Using existing processed_at instead of last_attempt_at
         })
         .eq('id', id);
     
