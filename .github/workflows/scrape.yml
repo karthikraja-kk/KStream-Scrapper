@@ -14,10 +14,6 @@ on:
           - user
           - scheduler
           - full
-      target_year:
-        description: 'Year folder to scrape (if mode is user/scheduler)'
-        required: true
-        default: '2026'
 
 jobs:
   scrape:
@@ -39,7 +35,6 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           TRIGGER_BY: ${{ github.event.inputs.trigger_by }}
-          TARGET_YEAR: ${{ github.event.inputs.target_year }}
         run: node index-crawler.js
 
       - name: Run Detail Scraper
