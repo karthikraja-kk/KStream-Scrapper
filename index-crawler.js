@@ -26,8 +26,14 @@ async function checkLock() {
     if (error) throw error;
     if (data && data.length > 0) {
         console.error(`\n[BLOCK] Scraper is already running (Run ID: ${data[0].id}). New trigger rejected.`);
-        process.exit(0); // Exit gracefully so workflow doesn't show "failed" if it was just blocked
+        process.exit(1); // Exit with error so Detail Scraper is skipped
     }
+}
+
+async function cleanStaging() {
+    console.log('Cleaning staging tables...');
+    await supabase.from('movies_stage').delete().neq('slug', '');
+    await supabase.from('media_stage').delete().neq('movie_url', '');
 }
 
 async function logRefreshStatus(status) {
@@ -146,6 +152,7 @@ async function runIndexCrawler() {
     try {
         await checkLock();
         await logRefreshStatus('inprogress');
+        await cleanStaging();
         await cleanQueue();
         
         const folders = await getYearFolders();
