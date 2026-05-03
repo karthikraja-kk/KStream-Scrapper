@@ -36,7 +36,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          TRIGGER_BY: ${{ github.event.inputs.refresh_type || 'quick' }}
+          REFRESH_TYPE: ${{ github.event.inputs.refresh_type || 'quick' }}
+          TRIGGER_SOURCE: ${{ github.event_name == 'schedule' && 'Scheduled' || 'Manual' }}
           TARGET_YEAR: ${{ github.event.inputs.target_year }}
         run: node index-crawler.js
 

@@ -2,15 +2,23 @@ import * as cheerio from 'cheerio';
 import { supabase, getSourceUrl } from './lib/supabase.js';
 import { fetchHtml, delay } from './lib/fetch.js';
 
-// Configuration: mode can be 'quick' or 'custom'
-const MODE = process.env.TRIGGER_BY || 'quick'; 
-const TARGET_YEAR = process.env.TARGET_YEAR; // Provided for 'custom'
+// Configuration
+const REFRESH_TYPE = process.env.REFRESH_TYPE || 'quick'; // 'quick' or 'custom'
+const TRIGGER_SOURCE = process.env.TRIGGER_SOURCE || 'Manual'; // 'Manual' or 'Scheduled'
+const TARGET_YEAR = process.env.TARGET_YEAR; 
 const CURRENT_YEAR = new Date().getFullYear().toString();
 
+// Generate the descriptive log name
+let LOG_NAME = TRIGGER_SOURCE; 
+if (REFRESH_TYPE === 'custom' && TARGET_YEAR) {
+    LOG_NAME = `custom-${TARGET_YEAR}`;
+}
+
 async function logRefreshStatus(status) {
+    console.log(`Logging Status: ${status} for ${LOG_NAME}`);
     const { error } = await supabase
         .from('refresh_status')
-        .insert({ status, trigger_by: MODE });
+        .insert({ status, trigger_by: LOG_NAME });
     if (error) console.error('Failed to log refresh status:', error.message);
 }
 
@@ -32,7 +40,6 @@ async function getYearFolders() {
             folders.push({ name: link.text().trim(), url: new URL(href, baseUrl).toString() });
         }
     });
-    // Sort descending by year
     return folders.sort((a, b) => parseInt(b.name.match(/\d{4}/)[0]) - parseInt(a.name.match(/\d{4}/)[0]));
 }
 
@@ -87,20 +94,9 @@ async function getMoviesInFolder(folderUrl, fetchAllPages) {
 
 async function addToQueue(movies, folderName) {
     console.log(`\nAdding ${movies.length} movies to scrape_queue...`);
-    let added = 0;
     for (const movie of movies) {
-        const { error } = await supabase
-            .from('scrape_queue')
-            .upsert({ 
-                url: movie.url, 
-                folder: folderName,
-                status: 'pending',
-                priority: 1
-            }, { onConflict: 'url' });
-        
-        if (!error) added++;
+        await supabase.from('scrape_queue').upsert({ url: movie.url, folder: folderName, status: 'pending', priority: 1 }, { onConflict: 'url' });
     }
-    console.log(`Successfully queued ${added} movies.`);
 }
 
 async function runIndexCrawler() {
@@ -112,19 +108,17 @@ async function runIndexCrawler() {
         let targetFolder = null;
         let fetchAll = false;
 
-        if (MODE === 'custom' && TARGET_YEAR) {
+        if (REFRESH_TYPE === 'custom' && TARGET_YEAR) {
             console.log(`Mode: CUSTOM. Year: ${TARGET_YEAR}`);
             targetFolder = folders.find(f => f.name.includes(TARGET_YEAR));
             fetchAll = true;
         } else {
-            console.log(`Mode: QUICK. Targeting latest year (page 1 only).`);
+            console.log(`Mode: QUICK (${TRIGGER_SOURCE}). Targeting latest year (page 1 only).`);
             targetFolder = folders.find(f => f.name.includes(CURRENT_YEAR)) || folders[0];
             fetchAll = false;
         }
 
-        if (!targetFolder) {
-            throw new Error(`Target folder not found.`);
-        }
+        if (!targetFolder) throw new Error(`Target folder for ${TARGET_YEAR || CURRENT_YEAR} not found.`);
 
         console.log(`\nProcessing folder: ${targetFolder.name}`);
         const movies = await getMoviesInFolder(targetFolder.url, fetchAll);
