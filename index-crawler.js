@@ -103,12 +103,11 @@ async function getMoviesInFolder(folderUrl, fetchAllPages) {
 
                 // STRICT FILTERS
                 const isYearLink = /Tamil \d{4} Movies|Moviesda \d{4} Movies/i.test(name);
-                const isAudioLaunch = /Audio Launch|Official/i.test(name);
                 const isPageLink = /பக்கத்திற்குச் செல்ல|Page Tags/i.test(name);
                 const isMoviesdaMeta = /Moviesda Download|Tamil Full Movie Download/i.test(name);
                 const isWebSeries = /web-series/i.test(fullUrl) || /Web Series/i.test(name);
 
-                if (!globalSeenUrls.has(fullUrl) && !isYearLink && !isAudioLaunch && !isPageLink && !isMoviesdaMeta && !isWebSeries) {
+                if (!globalSeenUrls.has(fullUrl) && !isYearLink && !isPageLink && !isMoviesdaMeta && !isWebSeries) {
                     allMovies.push({ name, url: fullUrl });
                     globalSeenUrls.add(fullUrl);
                     moviesOnPage++;
