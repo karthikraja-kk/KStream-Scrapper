@@ -19,14 +19,26 @@ async function checkLock() {
     console.log('Checking for active scraper runs...');
     const { data, error } = await supabase
         .from('refresh_status')
-        .select('id, status')
+        .select('id, status, refresh_time')
         .eq('status', 'inprogress')
+        .order('refresh_time', { ascending: false })
         .limit(1);
     
     if (error) throw error;
+
     if (data && data.length > 0) {
-        console.error(`\n[BLOCK] Scraper is already running (Run ID: ${data[0].id}). New trigger rejected.`);
-        process.exit(1); // Exit with error so Detail Scraper is skipped
+        const activeRun = data[0];
+        const startTime = new Date(activeRun.refresh_time);
+        const now = new Date();
+        const diffHours = (now - startTime) / (1000 * 60 * 60);
+
+        if (diffHours > 2) {
+            console.warn(`\n[UNLOCK] Found a stale run (ID: ${activeRun.id}, Started: ${activeRun.refresh_time}). Marking as failed and proceeding.`);
+            await supabase.from('refresh_status').update({ status: 'failed' }).eq('id', activeRun.id);
+        } else {
+            console.error(`\n[BLOCK] Scraper is already running (Run ID: ${activeRun.id}, Started: ${activeRun.refresh_time}). New trigger rejected.`);
+            process.exit(1); 
+        }
     }
 }
 
