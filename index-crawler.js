@@ -3,23 +3,53 @@ import { supabase, getSourceUrl } from './lib/supabase.js';
 import { fetchHtml, delay } from './lib/fetch.js';
 
 // Configuration
-const REFRESH_TYPE = process.env.REFRESH_TYPE || 'quick'; // 'quick' or 'custom'
-const TRIGGER_SOURCE = process.env.TRIGGER_SOURCE || 'Manual'; // 'Manual' or 'Scheduled'
+const REFRESH_TYPE = process.env.REFRESH_TYPE || 'quick';
+const TRIGGER_SOURCE = process.env.TRIGGER_SOURCE || 'Manual';
 const TARGET_YEAR = process.env.TARGET_YEAR; 
 const CURRENT_YEAR = new Date().getFullYear().toString();
 
-// Generate the descriptive log name
 let LOG_NAME = TRIGGER_SOURCE; 
 if (REFRESH_TYPE === 'custom' && TARGET_YEAR) {
     LOG_NAME = `custom-${TARGET_YEAR}`;
 }
 
+let activeRunId = null;
+
+async function checkLock() {
+    console.log('Checking for active scraper runs...');
+    const { data, error } = await supabase
+        .from('refresh_status')
+        .select('id, status')
+        .eq('status', 'inprogress')
+        .limit(1);
+    
+    if (error) throw error;
+    if (data && data.length > 0) {
+        console.error(`\n[BLOCK] Scraper is already running (Run ID: ${data[0].id}). New trigger rejected.`);
+        process.exit(0); // Exit gracefully so workflow doesn't show "failed" if it was just blocked
+    }
+}
+
 async function logRefreshStatus(status) {
     console.log(`Logging Status: ${status} for ${LOG_NAME}`);
-    const { error } = await supabase
-        .from('refresh_status')
-        .insert({ status, trigger_by: LOG_NAME });
-    if (error) console.error('Failed to log refresh status:', error.message);
+    
+    if (status === 'inprogress') {
+        const { data, error } = await supabase
+            .from('refresh_status')
+            .insert({ status, trigger_by: LOG_NAME })
+            .select('id')
+            .single();
+        if (error) console.error('Failed to log start:', error.message);
+        activeRunId = data?.id;
+    } else {
+        if (activeRunId) {
+            const { error } = await supabase
+                .from('refresh_status')
+                .update({ status })
+                .eq('id', activeRunId);
+            if (error) console.error('Failed to update status:', error.message);
+        }
+    }
 }
 
 async function cleanQueue() {
@@ -27,6 +57,15 @@ async function cleanQueue() {
     const { error } = await supabase.from('scrape_queue').delete().neq('status', 'processing');
     if (error) console.error('Failed to clean queue:', error.message);
 }
+
+// Fail-safe: Ensure status is updated to failed on crash
+process.on('uncaughtException', async (err) => {
+    console.error('CRITICAL UNCAUGHT ERROR:', err.message);
+    if (activeRunId) {
+        await supabase.from('refresh_status').update({ status: 'failed' }).eq('id', activeRunId);
+    }
+    process.exit(1);
+});
 
 async function getYearFolders() {
     const baseUrl = await getSourceUrl();
@@ -54,7 +93,6 @@ async function getMoviesInFolder(folderUrl, fetchAllPages) {
         const html = await fetchHtml(currentUrl);
         const $ = cheerio.load(html);
         
-        let moviesOnPage = 0;
         $('div.f').each((i, el) => {
             const link = $(el).find('a').first();
             const href = link.attr('href');
@@ -65,12 +103,9 @@ async function getMoviesInFolder(folderUrl, fetchAllPages) {
                 if (!globalSeenUrls.has(fullUrl) && !isWebSeries) {
                     allMovies.push({ name, url: fullUrl });
                     globalSeenUrls.add(fullUrl);
-                    moviesOnPage++;
                 }
             }
         });
-
-        console.log(`  - Discovered ${moviesOnPage} unique movies on page ${pageNum}`);
 
         if (!fetchAllPages) break;
 
@@ -100,35 +135,34 @@ async function addToQueue(movies, folderName) {
 }
 
 async function runIndexCrawler() {
-    await logRefreshStatus('inprogress');
     try {
+        await checkLock();
+        await logRefreshStatus('inprogress');
         await cleanQueue();
-        const folders = await getYearFolders();
         
+        const folders = await getYearFolders();
         let targetFolder = null;
         let fetchAll = false;
 
         if (REFRESH_TYPE === 'custom' && TARGET_YEAR) {
-            console.log(`Mode: CUSTOM. Year: ${TARGET_YEAR}`);
             targetFolder = folders.find(f => f.name.includes(TARGET_YEAR));
             fetchAll = true;
         } else {
-            console.log(`Mode: QUICK (${TRIGGER_SOURCE}). Targeting latest year (page 1 only).`);
             targetFolder = folders.find(f => f.name.includes(CURRENT_YEAR)) || folders[0];
             fetchAll = false;
         }
 
-        if (!targetFolder) throw new Error(`Target folder for ${TARGET_YEAR || CURRENT_YEAR} not found.`);
+        if (!targetFolder) throw new Error(`Target folder not found.`);
 
         console.log(`\nProcessing folder: ${targetFolder.name}`);
         const movies = await getMoviesInFolder(targetFolder.url, fetchAll);
         await addToQueue(movies, targetFolder.name);
 
-        await logRefreshStatus('completed');
-        console.log('\nDiscovery Complete.');
+        console.log('\nDiscovery Phase Complete.');
     } catch (err) {
-        await logRefreshStatus('failed');
         console.error('Crawler Error:', err.message);
+        await logRefreshStatus('failed');
+        process.exit(1);
     }
 }
 

@@ -1,113 +1,76 @@
 import * as cheerio from 'cheerio';
 import { supabase } from './lib/supabase.js';
-import { fetchHtml, delay } from './lib/fetch.js';
-import { cpus } from 'os';
+import { fetchHtml, randomDelay } from './lib/fetch.js';
 
 // Configuration
-const NUM_WORKERS = 1; // Reduced to 1 to avoid IP blocking
+const NUM_WORKERS = 1; 
 
-import { randomDelay } from './lib/fetch.js';
-
-// --- STEP 5 Logic: Metadata ---
 function extractMetadata(html, movieUrl) {
     const $ = cheerio.load(html);
-
-    let title = $('h1').first().text().trim();
-    if (!title) title = $('title').text().split('|')[0].trim();
+    let title = $('h1').first().text().trim() || $('title').text().split('|')[0].trim();
     title = title.replace(/ Tamil Full Movie Download.*$/i, '').trim();
-
     const yearMatch = title.match(/\((\d{4})\)/);
-    const year = yearMatch ? parseInt(yearMatch[1]) : null;
+    
+    // Extract Slug (part after domain)
+    const urlObj = new URL(movieUrl);
+    const slug = urlObj.pathname;
 
     const posterUrl = $('picture source').first().attr('srcset') || $('picture img').attr('src') || '';
     const posterFullUrl = posterUrl ? (posterUrl.startsWith('http') ? posterUrl.split(' ')[0] : `https://moviesda19.com${posterUrl.split(' ')[0]}`) : null;
 
-    let directorText = '';
-    let castText = '';
-    let genreText = '';
-    let ratingText = '';
-    let languageText = '';
-    let typeText = '';
-
+    let meta = { director: null, starring: null, genres: null, rating: null, language: null, type: null };
     $('ul.movie-info li').each((i, el) => {
         const strong = $(el).find('strong').text().toLowerCase();
         const span = $(el).find('span').text().trim();
-        if (strong.includes('director')) directorText = span;
-        if (strong.includes('starring')) castText = span;
-        if (strong.includes('genres')) genreText = span;
-        if (strong.includes('movie rating')) ratingText = span.replace('/10', '');
-        if (strong.includes('language')) languageText = span;
-        if (strong.includes('quality')) typeText = span;
+        if (strong.includes('director')) meta.director = [span];
+        if (strong.includes('starring')) meta.starring = span.split(/[,|&]/).map(c => c.trim());
+        if (strong.includes('genres')) meta.genres = span.split(',').map(g => g.trim());
+        if (strong.includes('movie rating')) meta.rating = span.replace('/10', '');
+        if (strong.includes('language')) meta.language = span;
+        if (strong.includes('quality')) meta.type = span;
     });
 
-    const synopsis = $('.movie-synopsis').text().replace(/Synopsis:/i, '').trim();
-
     return {
+        slug,
         movie_url: movieUrl,
         movie_name: title.replace(/\s*\(\d{4}\)/, '').replace(/\s+Tamil\s*Movie.*$/i, '').trim(),
-        year,
-        synopsis: synopsis || null,
-        director: directorText ? [directorText] : null,
-        cast_members: castText ? castText.split(/[,|&]/).map(c => c.trim()).filter(c => c) : null,
-        genres: genreText ? genreText.split(',').map(g => g.trim()).filter(g => g) : null,
-        type: typeText || null,
-        language: languageText || null,
-        rating: ratingText || null,
+        year: yearMatch ? parseInt(yearMatch[1]) : null,
+        synopsis: $('.movie-synopsis').text().replace(/Synopsis:/i, '').trim() || null,
+        ...meta,
         poster_url: posterFullUrl
     };
 }
 
 function parseSize(text) {
-    const match = text.match(/([\d.]+)\s*(MB|GB)/i);
+    const match = text.match(/File Size:\s*([\d.]+)\s*(MB|GB)/i);
     if (!match) return 0;
     const value = parseFloat(match[1]);
     return match[2].toUpperCase() === 'GB' ? value * 1024 : value;
 }
 
-// --- STEP 12/13/14 Logic: Links & Stream ---
 async function extractFinalLinks(qualityPageUrl) {
     try {
         const html = await fetchHtml(qualityPageUrl);
         const $ = cheerio.load(html);
-        
-        let largestPage = null;
-        let maxMB = -1;
+        let largestPage = null; let maxMB = -1;
 
-        // Step 9: Selection of Largest File
         $('div.folder').each((i, el) => {
-            const $f = $(el);
-            const link = $f.find('a[href*="/download/"]').first();
+            const link = $(el).find('a[href*="/download/"]').first();
             let sizeMB = 0;
-            $f.find('li').each((j, li) => {
+            $(el).find('li').each((j, li) => {
                 if ($(li).text().includes('File Size:')) sizeMB = parseSize($(li).text());
             });
-            if (link.attr('href') && sizeMB > maxMB) {
-                maxMB = sizeMB;
-                largestPage = new URL(link.attr('href'), qualityPageUrl).toString();
-            }
+            if (link.attr('href') && sizeMB > maxMB) { maxMB = sizeMB; largestPage = new URL(link.attr('href'), qualityPageUrl).toString(); }
         });
 
         if (!largestPage) return { download1: null, stream1: null, download2: null, stream2: null, duration: null, size: null };
 
         const html1 = await fetchHtml(largestPage);
         const $1 = cheerio.load(html1);
-
-        // Step 11: Duration
         let duration = null;
         $1('.details, li, div').each((i, el) => {
-            const text = $(el).text();
-            if (text.includes('Duration:')) {
-                const m = text.match(/Duration:\s*(.+)/i);
-                if (m) duration = m[1].trim();
-            }
+            if ($(el).text().includes('Duration:')) duration = $(el).text().match(/Duration:\s*(.+)/i)?.[1].trim();
         });
-
-        const results = {
-            download1: null, stream1: null,
-            download2: null, stream2: null,
-            duration,
-            size: maxMB > 0 ? `${maxMB.toFixed(2)} MB` : null
-        };
 
         async function followChain(serverNum) {
             try {
@@ -117,193 +80,132 @@ async function extractFinalLinks(qualityPageUrl) {
                 const srvUrl = new URL(srvNode.attr('href'), largestPage).toString();
                 const html2 = await fetchHtml(srvUrl);
                 const $2 = cheerio.load(html2);
-                
                 const finalRedirectNode = $2(`.dlink a:contains("Download Server ${serverNum}")`);
                 if (finalRedirectNode.length === 0) return { dl: null, watch: null };
 
-                const finalRedirectUrl = new URL(finalRedirectNode.attr('href'), srvUrl).toString();
-                const html3 = await fetchHtml(finalRedirectUrl);
-                const $3 = cheerio.load(html3);
-                
+                const finalRedirectUrl = new URL(finalRedirectNode.attr('href'), srv1Url).toString();
+                const $3 = cheerio.load(await fetchHtml(finalRedirectUrl));
                 const dl = $3(`.dlink a:contains("Download Server ${serverNum}")`).attr('href');
-
                 let stream = null;
-                const watchLinkNode = $3(`.dlink a:contains("Watch Online Server ${serverNum}")`);
-                if (watchLinkNode.length > 0) {
-                    const watchUrl = new URL(watchLinkNode.attr('href'), finalRedirectUrl).toString();
-                    const watchHtml = await fetchHtml(watchUrl);
-                    const $w = cheerio.load(watchHtml);
-                    stream = $w('source').attr('src') || $w('video').attr('src');
+                const watchNode = $3(`.dlink a:contains("Watch Online Server ${serverNum}")`);
+                if (watchNode.length > 0) {
+                    const wHtml = await fetchHtml(new URL(watchNode.attr('href'), finalRedirectUrl).toString());
+                    stream = cheerio.load(wHtml)('source').attr('src') || cheerio.load(wHtml)('video').attr('src');
                 }
-
                 return { dl, watch: stream };
-            } catch (err) {
-                return { dl: null, watch: null };
-            }
+            } catch (e) { return { dl: null, watch: null }; }
         }
 
-        const srv1 = await followChain(1);
-        results.download1 = srv1.dl;
-        results.stream1 = srv1.watch;
-
-        const srv2 = await followChain(2);
-        results.download2 = srv2.dl;
-        results.stream2 = srv2.watch;
-
-        return results;
-    } catch (err) {
-        console.error(`  - Final Link Error for ${qualityPageUrl}: ${err.message}`);
-        return { download1: null, stream1: null, download2: null, stream2: null, duration: null, size: null };
-    }
+        const s1 = await followChain(1);
+        const s2 = await followChain(2);
+        return { download1: s1.dl, stream1: s1.watch, download2: s2.dl, stream2: s2.watch, duration, size: maxMB > 0 ? `${maxMB.toFixed(2)} MB` : null };
+    } catch (err) { return { download1: null, stream1: null, download2: null, stream2: null, duration: null, size: null }; }
 }
 
 async function scrapeMovieDetails(item) {
     console.log(`\nScraping: ${item.url}`);
-
-    if (/web-series/i.test(item.url)) {
-        console.log(`  - Skipping Web Series: ${item.url}`);
-        await updateQueueStatus(item.id, 'skipped', 'Web Series excluded');
-        return;
-    }
-
-    let movieDetails = { movie_url: item.url };
-    let qualities = [];
-
     try {
         const html = await fetchHtml(item.url);
-        movieDetails = extractMetadata(html, item.url);
+        const movieDetails = extractMetadata(html, item.url);
         
         const $ = cheerio.load(html);
-        let qualitySelectionUrl = null;
-        $('div.f').each((i, el) => {
-            if ($(el).find('img[src*="folder.svg"]').length > 0) {
-                const link = $(el).find('a').first();
-                qualitySelectionUrl = new URL(link.attr('href'), item.url).toString();
-                return false;
-            }
-        });
+        let qUrl = null;
+        $('div.f').each((i, el) => { if ($(el).find('img[src*="folder.svg"]').length > 0) { qUrl = new URL($(el).find('a').first().attr('href'), item.url).toString(); return false; } });
 
-        if (qualitySelectionUrl) {
-            const qHtml = await fetchHtml(qualitySelectionUrl);
+        const qualities = [];
+        if (qUrl) {
+            const qHtml = await fetchHtml(qUrl);
             const $q = cheerio.load(qHtml);
             $q('div.f').each((i, el) => {
                 if ($q(el).find('img[src*="folder.svg"]').length > 0) {
-                    const link = $q(el).find('a').first();
-                    const name = link.text().trim();
+                    const name = $q(el).find('a').text().trim();
                     const match = name.match(/\(([^)]+)\)/);
-                    if (match) {
-                        qualities.push({ 
-                            label: match[1], 
-                            url: new URL(link.attr('href'), qualitySelectionUrl).toString() 
-                        });
-                    }
+                    if (match) qualities.push({ label: match[1], url: new URL($q(el).find('a').attr('href'), qUrl).toString() });
                 }
             });
         }
-    } catch (err) {
-        console.error(`  - Metadata Fetch Error: ${err.message}`);
-    }
 
-    if (qualities.length === 0) {
-        console.log(`  - No qualities found. Marking as failed.`);
-        await updateQueueStatus(item.id, 'error', 'No quality links found');
-        return;
-    }
+        if (qualities.length === 0) return await updateQueueStatus(item.id, 'error', 'No quality links');
 
-    const mediaResults = [];
-    let totalValidLinks = 0;
-    let firstDuration = null;
-
-    for (const q of qualities) {
-        console.log(`  - Quality: ${q.label}...`);
-        const links = await extractFinalLinks(q.url);
-        if (links.download1 || links.download2 || links.stream1 || links.stream2) totalValidLinks++;
-        if (!firstDuration) firstDuration = links.duration;
-
-        mediaResults.push({
-            quality: q.label,
-            file_size: links.size,
-            download1: links.download1,
-            download2: links.download2,
-            stream1: links.stream1,
-            stream2: links.stream2
-        });
-        await randomDelay(3000, 7000);
+        const mediaResults = [];
+        let firstDuration = null;
+        for (const q of qualities) {
+            console.log(`  - Quality: ${q.label}...`);
+            const links = await extractFinalLinks(q.url);
+            if (!firstDuration) firstDuration = links.duration;
+            mediaResults.push({ quality: q.label, file_size: links.size, download1: links.download1, download2: links.download2, stream1: links.stream1, stream2: links.stream2 });
+            await randomDelay(2000, 5000);
         }
-    if (totalValidLinks === 0) {
-        console.log(`  - FAILURE: No valid links found. Not saving to DB.`);
-        await updateQueueStatus(item.id, 'error', 'No valid download/stream links found');
-        return;
-    }
 
-    console.log(`  - Success: Found links. Saving to DB...`);
-    if (firstDuration) movieDetails.duration = firstDuration;
-    
-    const { data: movieRecord, error: movieError } = await supabase
-        .from('movies')
-        .upsert(movieDetails, { onConflict: 'movie_url' })
-        .select('id')
-        .single();
-    
-    if (movieError) {
-        console.error(`  - DB Error (Movies): ${movieError.message}`);
-        await updateQueueStatus(item.id, 'error', movieError.message);
-        return;
-    }
+        if (mediaResults.every(m => !m.download1 && !m.stream1)) return await updateQueueStatus(item.id, 'error', 'No valid links');
 
-    const movieId = movieRecord.id;
-    await supabase.from('media').delete().eq('movie_id', movieId);
-    
-    for (const m of mediaResults) {
-        await supabase.from('media').insert({
-            movie_id: movieId,
-            quality: m.quality,
-            file_size: m.file_size,
-            download_url_1: m.download1,
-            download_url_2: m.download2,
-            watch_url_1: m.stream1,
-            watch_url_2: m.stream2
-        });
-    }
+        if (firstDuration) movieDetails.duration = firstDuration;
+        await supabase.from('movies_stage').upsert(movieDetails, { onConflict: 'slug' });
+        
+        await supabase.from('media_stage').delete().eq('movie_url', item.url);
+        for (const m of mediaResults) {
+            await supabase.from('media_stage').insert({ movie_url: item.url, quality: m.quality, file_size: m.file_size, download_url_1: m.download1, download_url_2: m.download2, watch_url_1: m.stream1, watch_url_2: m.stream2 });
+        }
 
-    await updateQueueStatus(item.id, 'done');
-    console.log(`  - Completed: ${movieDetails.movie_name || item.url}`);
+        await updateQueueStatus(item.id, 'done');
+        console.log(`  - Staged: ${movieDetails.movie_name}`);
+    } catch (err) {
+        console.error(`  - Error: ${err.message}`);
+        await updateQueueStatus(item.id, 'error', err.message);
+    }
 }
 
 async function getQueueItems(limit) {
-    const { data, error } = await supabase
-        .from('scrape_queue')
-        .select('*')
-        .eq('status', 'pending')
-        .order('priority', { ascending: false })
-        .limit(limit);
+    const { data, error } = await supabase.from('scrape_queue').select('*').eq('status', 'pending').order('priority', { ascending: false }).limit(limit);
     if (error) throw error;
     return data;
 }
 
 async function updateQueueStatus(id, status, errorMsg = null) {
-    await supabase
-        .from('scrape_queue')
-        .update({ status, error_msg: errorMsg, processed_at: new Date().toISOString() })
-        .eq('id', id);
+    await supabase.from('scrape_queue').update({ status, error_msg: errorMsg, processed_at: new Date().toISOString() }).eq('id', id);
+}
+
+async function finalizeRun() {
+    console.log('\n--- Finalizing Run: Syncing Staging to Production ---');
+    const { error } = await supabase.rpc('sync_movies_and_media');
+    
+    // Release the lock by finding the 'inprogress' run
+    const { data: activeRun } = await supabase.from('refresh_status').select('id').eq('status', 'inprogress').order('refresh_time', { ascending: false }).limit(1).single();
+    
+    if (activeRun) {
+        const finalStatus = error ? 'failed' : 'completed';
+        await supabase.from('refresh_status').update({ status: finalStatus }).eq('id', activeRun.id);
+    }
+
+    if (error) throw new Error(`Sync RPC Failed: ${error.message}`);
+    console.log('Production tables successfully synchronized.');
 }
 
 async function runDistributed() {
     console.log(`Starting Scraper Workers (${NUM_WORKERS})...`);
-    while (true) {
-        const items = await getQueueItems(NUM_WORKERS);
-        if (items.length === 0) {
-            console.log('No more pending items.');
-            break;
+    
+    // Fail-safe global handler
+    process.on('uncaughtException', async (err) => {
+        console.error('CRITICAL ERROR:', err.message);
+        const { data: activeRun } = await supabase.from('refresh_status').select('id').eq('status', 'inprogress').limit(1).single();
+        if (activeRun) await supabase.from('refresh_status').update({ status: 'failed' }).eq('id', activeRun.id);
+        process.exit(1);
+    });
+
+    try {
+        while (true) {
+            const items = await getQueueItems(NUM_WORKERS);
+            if (items.length === 0) break;
+            await Promise.all(items.map(item => updateQueueStatus(item.id, 'processing')));
+            await Promise.all(items.map(item => scrapeMovieDetails(item)));
+            await randomDelay(2000, 4000);
         }
-        console.log(`\nBatch: Processing ${items.length} items...`);
-        await Promise.all(items.map(item => updateQueueStatus(item.id, 'processing')));
-        await Promise.all(items.map(item => scrapeMovieDetails(item).catch(err => {
-            console.error(`Critical error for ${item.url}: ${err.message}`);
-            return updateQueueStatus(item.id, 'error', err.message);
-        })));
-        await delay(2000);
+        await finalizeRun();
+    } catch (err) {
+        console.error('Run failed:', err.message);
+        const { data: activeRun } = await supabase.from('refresh_status').select('id').eq('status', 'inprogress').limit(1).single();
+        if (activeRun) await supabase.from('refresh_status').update({ status: 'failed' }).eq('id', activeRun.id);
     }
 }
 
-runDistributed().catch(console.error);
+runDistributed();
