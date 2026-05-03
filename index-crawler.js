@@ -2,8 +2,9 @@ import * as cheerio from 'cheerio';
 import { supabase, getSourceUrl } from './lib/supabase.js';
 import { fetchHtml, delay } from './lib/fetch.js';
 
-// Configuration: mode can be 'user', 'scheduler', or 'full'
-const MODE = process.env.TRIGGER_BY || 'user'; 
+// Configuration: mode can be 'quick' or 'custom'
+const MODE = process.env.TRIGGER_BY || 'quick'; 
+const TARGET_YEAR = process.env.TARGET_YEAR; // Provided for 'custom'
 const CURRENT_YEAR = new Date().getFullYear().toString();
 
 async function logRefreshStatus(status) {
@@ -21,22 +22,14 @@ async function cleanQueue() {
 
 async function getYearFolders() {
     const baseUrl = await getSourceUrl();
-    console.log(`Discovery: Fetching home page from ${baseUrl}`);
     const html = await fetchHtml(baseUrl);
     const $ = cheerio.load(html);
     const folders = [];
-
     $('div.f').each((i, el) => {
         const link = $(el).find('a').first();
         const href = link.attr('href');
-        const hasIcon = $(el).find('img[src*="folder.svg"]').length > 0;
-        
-        if (href && hasIcon) {
-            const name = link.text().trim();
-            const fullUrl = new URL(href, baseUrl).toString();
-            if (/\d{4}/.test(name)) {
-                folders.push({ name, url: fullUrl });
-            }
+        if (href && $(el).find('img[src*="folder.svg"]').length > 0 && /\d{4}/.test(link.text())) {
+            folders.push({ name: link.text().trim(), url: new URL(href, baseUrl).toString() });
         }
     });
     // Sort descending by year
@@ -58,19 +51,11 @@ async function getMoviesInFolder(folderUrl, fetchAllPages) {
         $('div.f').each((i, el) => {
             const link = $(el).find('a').first();
             const href = link.attr('href');
-            const hasIcon = $(el).find('img[src*="folder.svg"]').length > 0;
-            
-            if (href && hasIcon) {
+            if (href && $(el).find('img[src*="folder.svg"]').length > 0) {
                 const fullUrl = new URL(href, currentUrl).toString();
-
                 const name = link.text().trim();
-                const isYearLink = /Tamil \d{4} Movies|Moviesda \d{4} Movies/i.test(name);
-                const isAudioLaunch = /Audio Launch|Official/i.test(name);
-                const isPageLink = /பக்கத்திற்குச் செல்ல|Page Tags/i.test(name);
-                const isMoviesdaMeta = /Moviesda Download|Tamil Full Movie Download/i.test(name);
                 const isWebSeries = /web-series/i.test(fullUrl) || /Web Series/i.test(name);
-
-                if (!globalSeenUrls.has(fullUrl) && !isYearLink && !isAudioLaunch && !isPageLink && !isMoviesdaMeta && !isWebSeries) {
+                if (!globalSeenUrls.has(fullUrl) && !isWebSeries) {
                     allMovies.push({ name, url: fullUrl });
                     globalSeenUrls.add(fullUrl);
                     moviesOnPage++;
@@ -86,7 +71,7 @@ async function getMoviesInFolder(folderUrl, fetchAllPages) {
         $('div.pagecontent a').each((i, el) => {
             const text = $(el).text().trim();
             const href = $(el).attr('href');
-            if ((text.toLowerCase().includes('next') || text === '»') && href && href !== '#' && href !== '') {
+            if ((text.toLowerCase().includes('next') || text === '»') && href && href !== '#') {
                 nextPageUrl = new URL(href, currentUrl).toString();
                 return false;
             }
@@ -95,7 +80,7 @@ async function getMoviesInFolder(folderUrl, fetchAllPages) {
         if (!nextPageUrl || nextPageUrl === currentUrl) break;
         currentUrl = nextPageUrl;
         pageNum++;
-        await delay(1000); 
+        await delay(1000);
     }
     return allMovies;
 }
@@ -124,27 +109,32 @@ async function runIndexCrawler() {
         await cleanQueue();
         const folders = await getYearFolders();
         
-        let targetFolders = [];
-        if (MODE === 'full') {
-            targetFolders = folders;
+        let targetFolder = null;
+        let fetchAll = false;
+
+        if (MODE === 'custom' && TARGET_YEAR) {
+            console.log(`Mode: CUSTOM. Year: ${TARGET_YEAR}`);
+            targetFolder = folders.find(f => f.name.includes(TARGET_YEAR));
+            fetchAll = true;
         } else {
-            // Latest year
-            targetFolders = [folders.find(f => f.name.includes(CURRENT_YEAR)) || folders[0]];
+            console.log(`Mode: QUICK. Targeting latest year (page 1 only).`);
+            targetFolder = folders.find(f => f.name.includes(CURRENT_YEAR)) || folders[0];
+            fetchAll = false;
         }
 
-        const fetchAll = (MODE !== 'user');
-
-        for (const folder of targetFolders) {
-            console.log(`\nProcessing folder: ${folder.name}`);
-            const movies = await getMoviesInFolder(folder.url, fetchAll);
-            await addToQueue(movies, folder.name);
+        if (!targetFolder) {
+            throw new Error(`Target folder not found.`);
         }
+
+        console.log(`\nProcessing folder: ${targetFolder.name}`);
+        const movies = await getMoviesInFolder(targetFolder.url, fetchAll);
+        await addToQueue(movies, targetFolder.name);
 
         await logRefreshStatus('completed');
         console.log('\nDiscovery Complete.');
     } catch (err) {
         await logRefreshStatus('failed');
-        console.error('Crawler Execution Error:', err.message);
+        console.error('Crawler Error:', err.message);
     }
 }
 

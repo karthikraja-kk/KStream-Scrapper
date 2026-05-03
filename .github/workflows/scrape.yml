@@ -2,18 +2,20 @@ name: Scrape
 
 on:
   schedule:
-    - cron: '30 21 * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
-      trigger_by:
-        description: 'Execution Mode'
+      refresh_type:
+        description: 'Refresh Type'
         required: true
-        default: 'user'
+        default: 'quick'
         type: choice
         options:
-          - user
-          - scheduler
-          - full
+          - quick
+          - custom
+      target_year:
+        description: 'Year (Only for Custom Refresh)'
+        required: false
 
 jobs:
   scrape:
@@ -34,7 +36,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          TRIGGER_BY: ${{ github.event.inputs.trigger_by }}
+          TRIGGER_BY: ${{ github.event.inputs.refresh_type || 'quick' }}
+          TARGET_YEAR: ${{ github.event.inputs.target_year }}
         run: node index-crawler.js
 
       - name: Run Detail Scraper
