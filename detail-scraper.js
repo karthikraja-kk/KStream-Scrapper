@@ -37,7 +37,12 @@ function extractMetadata(html, movieUrl) {
         movie_name: title.replace(/\s*\(\d{4}\)/, '').replace(/\s+Tamil\s*Movie.*$/i, '').trim(),
         year: yearMatch ? parseInt(yearMatch[1]) : null,
         synopsis: $('.movie-synopsis').text().replace(/Synopsis:/i, '').trim() || null,
-        ...meta,
+        director: meta.director,
+        cast_members: meta.starring, // Correctly mapped to cast_members
+        genres: meta.genres,
+        rating: meta.rating,
+        language: meta.language,
+        type: meta.type,
         poster_url: posterFullUrl
     };
 }
