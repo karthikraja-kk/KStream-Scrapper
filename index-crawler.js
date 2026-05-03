@@ -98,11 +98,13 @@ async function getMoviesInFolder(folderUrl, fetchAllPages) {
         console.log(`  Fetching page ${pageNum}: ${currentUrl}`);
         const html = await fetchHtml(currentUrl);
         const $ = cheerio.load(html);
+        
+        let moviesOnPage = 0;
         $('div.f').each((i, el) => {
             const link = $(el).find('a').first();
             const href = link.attr('href');
             const hasIcon = $(el).find('img[src*="folder.svg"]').length > 0;
-
+            
             if (href && hasIcon) {
                 const name = link.text().trim();
                 const fullUrl = new URL(href, currentUrl).toString();
@@ -120,6 +122,8 @@ async function getMoviesInFolder(folderUrl, fetchAllPages) {
                 }
             }
         });
+
+        console.log(`  - Discovered ${moviesOnPage} unique movies on page ${pageNum}`);
 
         if (!fetchAllPages) break;
 
