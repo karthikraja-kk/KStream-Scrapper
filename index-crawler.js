@@ -92,17 +92,26 @@ async function getMoviesInFolder(folderUrl, fetchAllPages) {
         console.log(`  Fetching page ${pageNum}: ${currentUrl}`);
         const html = await fetchHtml(currentUrl);
         const $ = cheerio.load(html);
-        
         $('div.f').each((i, el) => {
             const link = $(el).find('a').first();
             const href = link.attr('href');
-            if (href && $(el).find('img[src*="folder.svg"]').length > 0) {
-                const fullUrl = new URL(href, currentUrl).toString();
+            const hasIcon = $(el).find('img[src*="folder.svg"]').length > 0;
+
+            if (href && hasIcon) {
                 const name = link.text().trim();
+                const fullUrl = new URL(href, currentUrl).toString();
+
+                // STRICT FILTERS
+                const isYearLink = /Tamil \d{4} Movies|Moviesda \d{4} Movies/i.test(name);
+                const isAudioLaunch = /Audio Launch|Official/i.test(name);
+                const isPageLink = /பக்கத்திற்குச் செல்ல|Page Tags/i.test(name);
+                const isMoviesdaMeta = /Moviesda Download|Tamil Full Movie Download/i.test(name);
                 const isWebSeries = /web-series/i.test(fullUrl) || /Web Series/i.test(name);
-                if (!globalSeenUrls.has(fullUrl) && !isWebSeries) {
+
+                if (!globalSeenUrls.has(fullUrl) && !isYearLink && !isAudioLaunch && !isPageLink && !isMoviesdaMeta && !isWebSeries) {
                     allMovies.push({ name, url: fullUrl });
                     globalSeenUrls.add(fullUrl);
+                    moviesOnPage++;
                 }
             }
         });

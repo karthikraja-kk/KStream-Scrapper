@@ -113,6 +113,14 @@ async function extractFinalLinks(qualityPageUrl) {
 
 async function scrapeMovieDetails(item) {
     console.log(`\nScraping: ${item.url}`);
+
+    // Early exit for web series
+    if (/web-series/i.test(item.url)) {
+        console.log(`  - Skipping Web Series: ${item.url}`);
+        await updateQueueStatus(item.id, 'skipped', 'Web Series excluded');
+        return;
+    }
+
     try {
         const html = await fetchHtml(item.url);
         const movieDetails = extractMetadata(html, item.url);
