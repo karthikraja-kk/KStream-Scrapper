@@ -146,10 +146,19 @@ async function scrapeMovieDetails(item) {
         if (firstDuration) movieDetails.duration = firstDuration;
         
         // SAVE TO STAGE
-        await supabase.from('movies_stage').upsert(movieDetails, { onConflict: 'slug' });
+        console.log(`  - Staging movie: ${movieDetails.slug}`);
+        const { error: stageMovieError } = await supabase.from('movies_stage').upsert(movieDetails, { onConflict: 'slug' });
+        
+        if (stageMovieError) {
+            console.error(`  - FAILED to stage movie (${movieDetails.movie_name}): ${stageMovieError.message}`);
+            await updateQueueStatus(item.id, 'error', `Staging Movie Error: ${stageMovieError.message}`);
+            return;
+        }
+
         await supabase.from('media_stage').delete().eq('movie_url', item.url);
+        let mediaStagedCount = 0;
         for (const m of mediaResults) {
-            await supabase.from('media_stage').insert({ 
+            const { error: stageMediaError } = await supabase.from('media_stage').insert({ 
                 movie_url: item.url, 
                 quality: m.quality, 
                 file_size: m.file_size, 
@@ -158,10 +167,11 @@ async function scrapeMovieDetails(item) {
                 watch_url_1: m.stream1, 
                 watch_url_2: m.stream2 
             });
+            if (!stageMediaError) mediaStagedCount++;
         }
 
         await updateQueueStatus(item.id, 'done');
-        console.log(`  - Staged: ${movieDetails.movie_name}`);
+        console.log(`  - Staged: ${movieDetails.movie_name} (with ${mediaStagedCount} qualities)`);
     } catch (err) {
         console.error(`  - Error for ${item.url}: ${err.message}`);
         await updateQueueStatus(item.id, 'error', err.message);
