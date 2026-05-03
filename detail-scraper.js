@@ -262,6 +262,11 @@ async function finalizeRun() {
 async function runDistributed() {
     console.log(`Starting Scraper Workers (${NUM_WORKERS})...`);
     
+    // Clean staging tables at the BEGINNING
+    console.log('Cleaning staging tables...');
+    await supabase.from('movies_stage').delete().neq('slug', '');
+    await supabase.from('media_stage').delete().neq('movie_url', '');
+
     process.on('uncaughtException', async (err) => {
         console.error('CRITICAL ERROR:', err.message);
         const { data: activeRun } = await supabase.from('refresh_status').select('id').eq('status', 'inprogress').limit(1).single();
