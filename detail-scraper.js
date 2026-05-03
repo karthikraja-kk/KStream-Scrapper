@@ -4,6 +4,7 @@ import { fetchHtml, randomDelay } from './lib/fetch.js';
 
 // Configuration
 const NUM_WORKERS = 1; 
+const MOVIE_DELAY_MS = 1000;
 
 function extractMetadata(html, movieUrl) {
     const $ = cheerio.load(html);
@@ -83,14 +84,17 @@ async function extractFinalLinks(qualityPageUrl) {
                 const finalRedirectNode = $2(`.dlink a:contains("Download Server ${serverNum}")`);
                 if (finalRedirectNode.length === 0) return { dl: null, watch: null };
 
-                const finalRedirectUrl = new URL(finalRedirectNode.attr('href'), srv1Url).toString();
-                const $3 = cheerio.load(await fetchHtml(finalRedirectUrl));
+                const finalRedirectUrl = new URL(finalRedirectNode.attr('href'), srvUrl).toString();
+                const html3 = await fetchHtml(finalRedirectUrl);
+                const $3 = cheerio.load(html3);
+                
                 const dl = $3(`.dlink a:contains("Download Server ${serverNum}")`).attr('href');
                 let stream = null;
                 const watchNode = $3(`.dlink a:contains("Watch Online Server ${serverNum}")`);
                 if (watchNode.length > 0) {
                     const wHtml = await fetchHtml(new URL(watchNode.attr('href'), finalRedirectUrl).toString());
-                    stream = cheerio.load(wHtml)('source').attr('src') || cheerio.load(wHtml)('video').attr('src');
+                    const $w = cheerio.load(wHtml);
+                    stream = $w('source').attr('src') || $w('video').attr('src');
                 }
                 return { dl, watch: stream };
             } catch (e) { return { dl: null, watch: null }; }
@@ -140,17 +144,26 @@ async function scrapeMovieDetails(item) {
         if (mediaResults.every(m => !m.download1 && !m.stream1)) return await updateQueueStatus(item.id, 'error', 'No valid links');
 
         if (firstDuration) movieDetails.duration = firstDuration;
-        await supabase.from('movies_stage').upsert(movieDetails, { onConflict: 'slug' });
         
+        // SAVE TO STAGE
+        await supabase.from('movies_stage').upsert(movieDetails, { onConflict: 'slug' });
         await supabase.from('media_stage').delete().eq('movie_url', item.url);
         for (const m of mediaResults) {
-            await supabase.from('media_stage').insert({ movie_url: item.url, quality: m.quality, file_size: m.file_size, download_url_1: m.download1, download_url_2: m.download2, watch_url_1: m.stream1, watch_url_2: m.stream2 });
+            await supabase.from('media_stage').insert({ 
+                movie_url: item.url, 
+                quality: m.quality, 
+                file_size: m.file_size, 
+                download_url_1: m.download1, 
+                download_url_2: m.download2, 
+                watch_url_1: m.stream1, 
+                watch_url_2: m.stream2 
+            });
         }
 
         await updateQueueStatus(item.id, 'done');
         console.log(`  - Staged: ${movieDetails.movie_name}`);
     } catch (err) {
-        console.error(`  - Error: ${err.message}`);
+        console.error(`  - Error for ${item.url}: ${err.message}`);
         await updateQueueStatus(item.id, 'error', err.message);
     }
 }
@@ -167,9 +180,51 @@ async function updateQueueStatus(id, status, errorMsg = null) {
 
 async function finalizeRun() {
     console.log('\n--- Finalizing Run: Syncing Staging to Production ---');
+    // Using Postgres anonymous code block (DO) to run the sync without needing a predefined function
+    const syncSql = `
+        DO $$
+        BEGIN
+            -- 1. Sync Movies (Match on Slug)
+            INSERT INTO movies (slug, movie_url, movie_name, year, duration, synopsis, director, cast_members, genres, type, language, rating, poster_url)
+            SELECT 
+                s.slug, s.movie_url, s.movie_name, s.year, s.duration, s.synopsis, s.director, s.cast_members, s.genres, s.type, s.language, s.rating, s.poster_url
+            FROM movies_stage s
+            ON CONFLICT (slug) DO UPDATE SET
+                movie_url = EXCLUDED.movie_url,
+                movie_name = COALESCE(EXCLUDED.movie_name, movies.movie_name),
+                year = COALESCE(EXCLUDED.year, movies.year),
+                duration = COALESCE(EXCLUDED.duration, movies.duration),
+                synopsis = COALESCE(EXCLUDED.synopsis, movies.synopsis),
+                director = COALESCE(EXCLUDED.director, movies.director),
+                cast_members = COALESCE(EXCLUDED.cast_members, movies.cast_members),
+                genres = COALESCE(EXCLUDED.genres, movies.genres),
+                type = COALESCE(EXCLUDED.type, movies.type),
+                language = COALESCE(EXCLUDED.language, movies.language),
+                rating = COALESCE(EXCLUDED.rating, movies.rating),
+                poster_url = COALESCE(EXCLUDED.poster_url, movies.poster_url),
+                updated_at = NOW();
+
+            -- 2. Sync Media
+            DELETE FROM media 
+            WHERE movie_id IN (SELECT id FROM movies WHERE slug IN (SELECT slug FROM movies_stage));
+
+            INSERT INTO media (movie_id, quality, file_size, watch_url_1, watch_url_2, download_url_1, download_url_2)
+            SELECT 
+                m.id, ms.quality, ms.file_size, ms.watch_url_1, ms.watch_url_2, ms.download_url_1, ms.download_url_2
+            FROM media_stage ms
+            JOIN movies m ON ms.movie_url = m.movie_url;
+
+            -- 3. Cleanup Stage
+            TRUNCATE movies_stage;
+            TRUNCATE media_stage;
+        END $$;
+    `;
+
+    // Note: Supabase JS client doesn't support raw SQL 'DO' blocks directly through .query() easily.
+    // We will keep calling the RPC and assume the user has run the SQL from the plan.
+    // If the RPC fails, we log it clearly.
     const { error } = await supabase.rpc('sync_movies_and_media');
     
-    // Release the lock by finding the 'inprogress' run
     const { data: activeRun } = await supabase.from('refresh_status').select('id').eq('status', 'inprogress').order('refresh_time', { ascending: false }).limit(1).single();
     
     if (activeRun) {
@@ -177,14 +232,13 @@ async function finalizeRun() {
         await supabase.from('refresh_status').update({ status: finalStatus }).eq('id', activeRun.id);
     }
 
-    if (error) throw new Error(`Sync RPC Failed: ${error.message}`);
+    if (error) throw new Error(`Sync RPC Failed. Ensure you ran the SQL in Supabase Editor. Error: ${error.message}`);
     console.log('Production tables successfully synchronized.');
 }
 
 async function runDistributed() {
     console.log(`Starting Scraper Workers (${NUM_WORKERS})...`);
     
-    // Fail-safe global handler
     process.on('uncaughtException', async (err) => {
         console.error('CRITICAL ERROR:', err.message);
         const { data: activeRun } = await supabase.from('refresh_status').select('id').eq('status', 'inprogress').limit(1).single();
