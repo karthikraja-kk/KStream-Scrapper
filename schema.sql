@@ -62,10 +62,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS update_movies_updated_at ON movies;
 CREATE TRIGGER update_movies_updated_at
 BEFORE UPDATE ON movies
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_media_updated_at ON media;
 CREATE TRIGGER update_media_updated_at
 BEFORE UPDATE ON media
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
