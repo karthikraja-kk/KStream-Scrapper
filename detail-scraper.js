@@ -1,25 +1,48 @@
 import * as cheerio from 'cheerio';
-import { supabase } from './lib/supabase.js';
+import { randomUUID } from 'crypto';
+import { supabase, getSourceUrl } from './lib/supabase.js';
 import { fetchHtml, randomDelay } from './lib/fetch.js';
 
+const RUN_ID = randomUUID().split('-')[0];
+
+function log(level, ...args) {
+    const ts = new Date().toISOString();
+    console.log(`[${RUN_ID}] [${ts}] [${level}]`, ...args);
+}
+
+const runStats = {
+    processedCount: 0,
+    skippedCount: 0,
+    errorCount: 0
+};
+
 // Configuration
-const NUM_WORKERS = 1; 
+const NUM_WORKERS = 1;
 const MOVIE_DELAY_MS = 1000;
 
-function extractMetadata(html, movieUrl) {
+function extractMetadata(html, movieUrl, baseUrl) {
     const $ = cheerio.load(html);
     let title = $('h1').first().text().trim() || $('title').text().split('|')[0].trim();
     title = title.replace(/ Tamil Full Movie Download.*$/i, '').trim();
     const yearMatch = title.match(/\((\d{4})\)/);
-    
+
     // Extract Slug (part after domain)
     const urlObj = new URL(movieUrl);
     const slug = urlObj.pathname;
 
     const posterUrl = $('picture source').first().attr('srcset') || $('picture img').attr('src') || '';
-    const posterFullUrl = posterUrl ? (posterUrl.startsWith('http') ? posterUrl.split(' ')[0] : `https://moviesda19.com${posterUrl.split(' ')[0]}`) : null;
+    // Store as relative path — base URL comes from source table at runtime
+    let posterRelative = null;
+    if (posterUrl) {
+        const cleaned = posterUrl.split(' ')[0];
+        if (cleaned.startsWith('http')) {
+            try { posterRelative = new URL(cleaned).pathname; } catch { posterRelative = cleaned; }
+        } else {
+            posterRelative = cleaned;
+        }
+    }
 
-    let meta = { director: null, starring: null, genres: null, rating: null, language: null, type: null };
+    let meta = { director: null, starring: null, genres: null, rating: null, language: null, type: null, lastUpdated: null };
     $('ul.movie-info li').each((i, el) => {
         const strong = $(el).find('strong').text().toLowerCase();
         const span = $(el).find('span').text().trim();
@@ -29,6 +52,7 @@ function extractMetadata(html, movieUrl) {
         if (strong.includes('movie rating')) meta.rating = span.replace('/10', '');
         if (strong.includes('language')) meta.language = span;
         if (strong.includes('quality')) meta.type = span;
+        if (strong.includes('last updated')) meta.lastUpdated = span;
     });
 
     return {
@@ -38,12 +62,13 @@ function extractMetadata(html, movieUrl) {
         year: yearMatch ? parseInt(yearMatch[1]) : null,
         synopsis: $('.movie-synopsis').text().replace(/Synopsis:/i, '').trim() || null,
         director: meta.director,
-        cast_members: meta.starring, // Correctly mapped to cast_members
+        cast_members: meta.starring,
         genres: meta.genres,
         rating: meta.rating,
         language: meta.language,
         type: meta.type,
-        poster_url: posterFullUrl
+        poster_url: posterRelative,
+        last_updated: meta.lastUpdated
     };
 }
 
@@ -92,7 +117,7 @@ async function extractFinalLinks(qualityPageUrl) {
                 const finalRedirectUrl = new URL(finalRedirectNode.attr('href'), srvUrl).toString();
                 const html3 = await fetchHtml(finalRedirectUrl);
                 const $3 = cheerio.load(html3);
-                
+
                 const dl = $3(`.dlink a:contains("Download Server ${serverNum}")`).attr('href');
                 let stream = null;
                 const watchNode = $3(`.dlink a:contains("Watch Online Server ${serverNum}")`);
@@ -111,20 +136,21 @@ async function extractFinalLinks(qualityPageUrl) {
     } catch (err) { return { download1: null, stream1: null, download2: null, stream2: null, duration: null, size: null }; }
 }
 
-async function scrapeMovieDetails(item) {
-    console.log(`\nScraping: ${item.url}`);
+async function scrapeMovieDetails(item, baseUrl) {
+    log('INFO', `Scraping: ${item.url}`);
 
     // Early exit for web series
     if (/web-series/i.test(item.url)) {
-        console.log(`  - Skipping Web Series: ${item.url}`);
+        log('INFO', `Skipping Web Series: ${item.url}`);
+        runStats.skippedCount += 1;
         await updateQueueStatus(item.id, 'skipped', 'Web Series excluded');
         return;
     }
 
     try {
         const html = await fetchHtml(item.url);
-        const movieDetails = extractMetadata(html, item.url);
-        
+        const movieDetails = extractMetadata(html, item.url, baseUrl);
+
         const $ = cheerio.load(html);
         let qUrl = null;
         $('div.f').each((i, el) => { if ($(el).find('img[src*="folder.svg"]').length > 0) { qUrl = new URL($(el).find('a').first().attr('href'), item.url).toString(); return false; } });
@@ -142,28 +168,35 @@ async function scrapeMovieDetails(item) {
             });
         }
 
-        if (qualities.length === 0) return await updateQueueStatus(item.id, 'error', 'No quality links');
+        if (qualities.length === 0) {
+            runStats.errorCount += 1;
+            return await updateQueueStatus(item.id, 'error', 'No quality links');
+        }
 
         const mediaResults = [];
         let firstDuration = null;
         for (const q of qualities) {
-            console.log(`  - Quality: ${q.label}...`);
+            log('INFO', `Quality: ${q.label}...`);
             const links = await extractFinalLinks(q.url);
             if (!firstDuration) firstDuration = links.duration;
             mediaResults.push({ quality: q.label, file_size: links.size, download1: links.download1, download2: links.download2, stream1: links.stream1, stream2: links.stream2 });
             await randomDelay(2000, 5000);
         }
 
-        if (mediaResults.every(m => !m.download1 && !m.stream1)) return await updateQueueStatus(item.id, 'error', 'No valid links');
+        if (mediaResults.every(m => !m.download1 && !m.stream1)) {
+            runStats.errorCount += 1;
+            return await updateQueueStatus(item.id, 'error', 'No valid links');
+        }
 
         if (firstDuration) movieDetails.duration = firstDuration;
-        
+
         // SAVE TO STAGE
-        console.log(`  - Staging movie: ${movieDetails.slug}`);
+        log('INFO', `Staging movie: ${movieDetails.slug}`);
         const { error: stageMovieError } = await supabase.from('movies_stage').upsert(movieDetails, { onConflict: 'slug' });
-        
+
         if (stageMovieError) {
-            console.error(`  - FAILED to stage movie (${movieDetails.movie_name}): ${stageMovieError.message}`);
+            log('ERROR', `FAILED to stage movie (${movieDetails.movie_name}): ${stageMovieError.message}`);
+            runStats.errorCount += 1;
             await updateQueueStatus(item.id, 'error', `Staging Movie Error: ${stageMovieError.message}`);
             return;
         }
@@ -171,28 +204,30 @@ async function scrapeMovieDetails(item) {
         await supabase.from('media_stage').delete().eq('movie_url', item.url);
         let mediaStagedCount = 0;
         for (const m of mediaResults) {
-            const { error: stageMediaError } = await supabase.from('media_stage').insert({ 
-                movie_url: item.url, 
-                quality: m.quality, 
-                file_size: m.file_size, 
-                download_url_1: m.download1, 
-                download_url_2: m.download2, 
-                watch_url_1: m.stream1, 
-                watch_url_2: m.stream2 
+            const { error: stageMediaError } = await supabase.from('media_stage').insert({
+                movie_url: item.url,
+                quality: m.quality,
+                file_size: m.file_size,
+                download_url_1: m.download1,
+                download_url_2: m.download2,
+                watch_url_1: m.stream1,
+                watch_url_2: m.stream2
             });
             if (!stageMediaError) mediaStagedCount++;
         }
 
         await updateQueueStatus(item.id, 'done');
-        console.log(`  - Staged: ${movieDetails.movie_name} (with ${mediaStagedCount} qualities)`);
+        runStats.processedCount += 1;
+        log('INFO', `Staged: ${movieDetails.movie_name} (with ${mediaStagedCount} qualities)`);
     } catch (err) {
-        console.error(`  - Error for ${item.url}: ${err.message}`);
+        log('ERROR', `Error for ${item.url}: ${err.message}`);
+        runStats.errorCount += 1;
         await updateQueueStatus(item.id, 'error', err.message);
     }
 }
 
 async function getQueueItems(limit) {
-    const { data, error } = await supabase.from('scrape_queue').select('*').eq('status', 'pending').order('priority', { ascending: false }).limit(limit);
+    const { data, error } = await supabase.from('scrape_queue').select('*').eq('status', 'pending').order('priority', { ascending: true }).limit(limit);
     if (error) throw error;
     return data;
 }
@@ -202,86 +237,50 @@ async function updateQueueStatus(id, status, errorMsg = null) {
 }
 
 async function finalizeRun() {
-    console.log('\n--- Finalizing Run: Syncing Staging to Production ---');
-    // Using Postgres anonymous code block (DO) to run the sync without needing a predefined function
-    const syncSql = `
-        DO $$
-        BEGIN
-            -- 1. Sync Movies (Match on Slug)
-            INSERT INTO movies (slug, movie_url, movie_name, year, duration, synopsis, director, cast_members, genres, type, language, rating, poster_url)
-            SELECT 
-                s.slug, s.movie_url, s.movie_name, s.year, s.duration, s.synopsis, s.director, s.cast_members, s.genres, s.type, s.language, s.rating, s.poster_url
-            FROM movies_stage s
-            ON CONFLICT (slug) DO UPDATE SET
-                movie_url = EXCLUDED.movie_url,
-                movie_name = COALESCE(EXCLUDED.movie_name, movies.movie_name),
-                year = COALESCE(EXCLUDED.year, movies.year),
-                duration = COALESCE(EXCLUDED.duration, movies.duration),
-                synopsis = COALESCE(EXCLUDED.synopsis, movies.synopsis),
-                director = COALESCE(EXCLUDED.director, movies.director),
-                cast_members = COALESCE(EXCLUDED.cast_members, movies.cast_members),
-                genres = COALESCE(EXCLUDED.genres, movies.genres),
-                type = COALESCE(EXCLUDED.type, movies.type),
-                language = COALESCE(EXCLUDED.language, movies.language),
-                rating = COALESCE(EXCLUDED.rating, movies.rating),
-                poster_url = COALESCE(EXCLUDED.poster_url, movies.poster_url),
-                updated_at = NOW();
-
-            -- 2. Sync Media
-            DELETE FROM media 
-            WHERE movie_id IN (SELECT id FROM movies WHERE slug IN (SELECT slug FROM movies_stage));
-
-            INSERT INTO media (movie_id, quality, file_size, watch_url_1, watch_url_2, download_url_1, download_url_2)
-            SELECT 
-                m.id, ms.quality, ms.file_size, ms.watch_url_1, ms.watch_url_2, ms.download_url_1, ms.download_url_2
-            FROM media_stage ms
-            JOIN movies m ON ms.movie_url = m.movie_url;
-
-            -- 3. Cleanup Stage
-            TRUNCATE movies_stage;
-            TRUNCATE media_stage;
-        END $$;
-    `;
-
-    // Note: Supabase JS client doesn't support raw SQL 'DO' blocks directly through .query() easily.
-    // We will keep calling the RPC and assume the user has run the SQL from the plan.
-    // If the RPC fails, we log it clearly.
+    log('INFO', '--- Finalizing Run: Syncing Staging to Production ---');
+    // Calls the sync_movies_and_media RPC defined in schema.sql
+    // which moves data from staging tables to production and cleans up
     const { error } = await supabase.rpc('sync_movies_and_media');
-    
+
     const { data: activeRun } = await supabase.from('refresh_status').select('id').eq('status', 'inprogress').order('refresh_time', { ascending: false }).limit(1).single();
-    
+
     if (activeRun) {
         const finalStatus = error ? 'failed' : 'completed';
         await supabase.from('refresh_status').update({ status: finalStatus }).eq('id', activeRun.id);
     }
 
     if (error) throw new Error(`Sync RPC Failed. Ensure you ran the SQL in Supabase Editor. Error: ${error.message}`);
-    console.log('Production tables successfully synchronized.');
+    log('INFO', 'Production tables successfully synchronized.');
 }
 
 async function runDistributed() {
-    console.log(`Starting Scraper Workers (${NUM_WORKERS})...`);
-    
+    log('INFO', `Starting Scraper Workers (${NUM_WORKERS})...`);
+
     process.on('uncaughtException', async (err) => {
-        console.error('CRITICAL ERROR:', err.message);
+        log('ERROR', 'CRITICAL ERROR:', err.message);
         const { data: activeRun } = await supabase.from('refresh_status').select('id').eq('status', 'inprogress').limit(1).single();
         if (activeRun) await supabase.from('refresh_status').update({ status: 'failed' }).eq('id', activeRun.id);
         process.exit(1);
     });
 
     try {
+        const baseUrl = await getSourceUrl();
+        log('INFO', `Using base URL: ${baseUrl}`);
+
         while (true) {
             const items = await getQueueItems(NUM_WORKERS);
             if (items.length === 0) break;
             await Promise.all(items.map(item => updateQueueStatus(item.id, 'processing')));
-            await Promise.all(items.map(item => scrapeMovieDetails(item)));
+            await Promise.all(items.map(item => scrapeMovieDetails(item, baseUrl)));
             await randomDelay(2000, 4000);
         }
         await finalizeRun();
     } catch (err) {
-        console.error('Run failed:', err.message);
+        log('ERROR', 'Run failed:', err.message);
         const { data: activeRun } = await supabase.from('refresh_status').select('id').eq('status', 'inprogress').limit(1).single();
         if (activeRun) await supabase.from('refresh_status').update({ status: 'failed' }).eq('id', activeRun.id);
+    } finally {
+        log('INFO', `Run summary: ${runStats.processedCount} processed, ${runStats.skippedCount} skipped, ${runStats.errorCount} errors`);
     }
 }
 

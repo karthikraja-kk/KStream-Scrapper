@@ -1,72 +1,84 @@
 import * as cheerio from 'cheerio';
-import { supabase, getSourceUrl } from './lib/supabase.js';
+import { randomUUID } from 'crypto';
+import { supabase, getSourceUrl, resolveBaseUrl } from './lib/supabase.js';
 import { fetchHtml, delay } from './lib/fetch.js';
+
+const RUN_ID = randomUUID().split('-')[0];
+
+function log(level, ...args) {
+    const ts = new Date().toISOString();
+    console.log(`[${RUN_ID}] [${ts}] [${level}]`, ...args);
+}
 
 // Configuration
 const REFRESH_TYPE = process.env.REFRESH_TYPE || 'quick';
 const TRIGGER_SOURCE = process.env.TRIGGER_SOURCE || 'Manual';
-const TARGET_YEAR = process.env.TARGET_YEAR; 
+const TARGET_YEAR = process.env.TARGET_YEAR;
 const CURRENT_YEAR = new Date().getFullYear().toString();
 
-let LOG_NAME = TRIGGER_SOURCE; 
+let LOG_NAME = TRIGGER_SOURCE;
 if (REFRESH_TYPE === 'custom' && TARGET_YEAR) {
     LOG_NAME = `custom-${TARGET_YEAR}`;
 }
 
 let activeRunId = null;
 
-async function checkLock() {
-    console.log('Checking for active scraper runs...');
+async function acquireLock() {
+    log('INFO', 'Acquiring scraper lock...');
+
     const { data, error } = await supabase
         .from('refresh_status')
-        .select('id, status')
-        .eq('status', 'inprogress')
-        .limit(1);
-    
-    if (error) throw error;
-    if (data && data.length > 0) {
-        console.error(`\n[BLOCK] Scraper is already running (Run ID: ${data[0].id}). New trigger rejected.`);
-        process.exit(1); // Exit with error so Detail Scraper is skipped
+        .insert({ status: 'inprogress', trigger_by: LOG_NAME })
+        .select('id')
+        .single();
+
+    if (error) {
+        const isLockConflict = error.code === '23505' || error.message?.toLowerCase().includes('duplicate key');
+        if (isLockConflict) {
+            log('ERROR', '[BLOCK] Scraper is already running. New trigger rejected.');
+            process.exit(1);
+        }
+        throw error;
     }
+
+    activeRunId = data?.id;
+    log('INFO', `Lock acquired${activeRunId ? ` (refresh_status.id=${activeRunId})` : ''}.`);
 }
 
 async function cleanStaging() {
-    console.log('Cleaning staging tables...');
+    log('INFO', 'Cleaning staging tables...');
     await supabase.from('movies_stage').delete().neq('slug', '');
     await supabase.from('media_stage').delete().neq('movie_url', '');
 }
 
 async function logRefreshStatus(status) {
-    console.log(`Logging Status: ${status} for ${LOG_NAME}`);
-    
-    if (status === 'inprogress') {
-        const { data, error } = await supabase
-            .from('refresh_status')
-            .insert({ status, trigger_by: LOG_NAME })
-            .select('id')
-            .single();
-        if (error) console.error('Failed to log start:', error.message);
-        activeRunId = data?.id;
-    } else {
-        if (activeRunId) {
-            const { error } = await supabase
-                .from('refresh_status')
-                .update({ status })
-                .eq('id', activeRunId);
-            if (error) console.error('Failed to update status:', error.message);
-        }
+    log('INFO', `Logging status: ${status} for ${LOG_NAME}`);
+
+    if (!activeRunId) {
+        return;
+    }
+
+    const { error } = await supabase
+        .from('refresh_status')
+        .update({ status })
+        .eq('id', activeRunId);
+
+    if (error) {
+        log('ERROR', 'Failed to update status:', error.message);
     }
 }
 
 async function cleanQueue() {
-    console.log('Cleaning previous scrape queue...');
+    log('INFO', 'Cleaning previous scrape queue...');
     const { error } = await supabase.from('scrape_queue').delete().neq('status', 'processing');
-    if (error) console.error('Failed to clean queue:', error.message);
+    if (error) {
+        log('ERROR', 'Failed to clean queue:', error.message);
+    }
 }
 
 // Fail-safe: Ensure status is updated to failed on crash
 process.on('uncaughtException', async (err) => {
-    console.error('CRITICAL UNCAUGHT ERROR:', err.message);
+    log('ERROR', 'CRITICAL UNCAUGHT ERROR:', err.message);
     if (activeRunId) {
         await supabase.from('refresh_status').update({ status: 'failed' }).eq('id', activeRunId);
     }
@@ -95,16 +107,16 @@ async function getMoviesInFolder(folderUrl, fetchAllPages) {
     const globalSeenUrls = new Set();
 
     while (currentUrl) {
-        console.log(`  Fetching page ${pageNum}: ${currentUrl}`);
+        log('INFO', `Fetching page ${pageNum}: ${currentUrl}`);
         const html = await fetchHtml(currentUrl);
         const $ = cheerio.load(html);
-        
+
         let moviesOnPage = 0;
         $('div.f').each((i, el) => {
             const link = $(el).find('a').first();
             const href = link.attr('href');
             const hasIcon = $(el).find('img[src*="folder.svg"]').length > 0;
-            
+
             if (href && hasIcon) {
                 const name = link.text().trim();
                 const fullUrl = new URL(href, currentUrl).toString();
@@ -123,7 +135,7 @@ async function getMoviesInFolder(folderUrl, fetchAllPages) {
             }
         });
 
-        console.log(`  - Discovered ${moviesOnPage} unique movies on page ${pageNum}`);
+        log('INFO', `Discovered ${moviesOnPage} unique movies on page ${pageNum}`);
 
         if (!fetchAllPages) break;
 
@@ -146,7 +158,7 @@ async function getMoviesInFolder(folderUrl, fetchAllPages) {
 }
 
 async function addToQueue(movies, folderName) {
-    console.log(`\nAdding ${movies.length} movies to scrape_queue...`);
+    log('INFO', `Adding ${movies.length} movies to scrape_queue...`);
     for (const movie of movies) {
         await supabase.from('scrape_queue').upsert({ url: movie.url, folder: folderName, status: 'pending', priority: 1 }, { onConflict: 'url' });
     }
@@ -154,11 +166,11 @@ async function addToQueue(movies, folderName) {
 
 async function runIndexCrawler() {
     try {
-        await checkLock();
-        await logRefreshStatus('inprogress');
+        await resolveBaseUrl();
+        await acquireLock();
         await cleanStaging();
         await cleanQueue();
-        
+
         const folders = await getYearFolders();
         let targetFolder = null;
         let fetchAll = false;
@@ -171,15 +183,15 @@ async function runIndexCrawler() {
             fetchAll = false;
         }
 
-        if (!targetFolder) throw new Error(`Target folder not found.`);
+        if (!targetFolder) throw new Error('Target folder not found.');
 
-        console.log(`\nProcessing folder: ${targetFolder.name}`);
+        log('INFO', `Processing folder: ${targetFolder.name}`);
         const movies = await getMoviesInFolder(targetFolder.url, fetchAll);
         await addToQueue(movies, targetFolder.name);
 
-        console.log('\nDiscovery Phase Complete.');
+        log('INFO', `Discovery complete: ${movies.length} movies queued from ${targetFolder.name}`);
     } catch (err) {
-        console.error('Crawler Error:', err.message);
+        log('ERROR', 'Crawler Error:', err.message);
         await logRefreshStatus('failed');
         process.exit(1);
     }
